@@ -1,0 +1,657 @@
+{
+  "entities": {
+    "Order": {
+      "title": "Order",
+      "description": "E-commerce order with real profit calculation, checkout fees, shipping, COGS, taxes, and UTM attribution.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "UID of the store owner",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "orderNumber": {
+          "type": "string",
+          "description": "Unique order number displayed to the merchant",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "cartpandaId": {
+          "type": "string",
+          "description": "External ID from Cartpanda API",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "shopifyId": {
+          "type": "string",
+          "description": "External ID from Shopify",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "customerName": {
+          "type": "string",
+          "description": "Full name of the customer",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "customerEmail": {
+          "type": "string",
+          "description": "Email address of the customer",
+          "minLength": 0,
+          "maxLength": 160
+        },
+        "customerPhone": {
+          "type": "string",
+          "description": "Phone number of the customer used for anti-test filtering",
+          "minLength": 0,
+          "maxLength": 40
+        },
+        "status": {
+          "type": "string",
+          "description": "Order fulfillment and payment classification status",
+          "enum": [
+            "approved",
+            "paid_unfulfilled",
+            "pending",
+            "abandoned",
+            "canceled",
+            "refunded"
+          ],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "paymentMethod": {
+          "type": "string",
+          "description": "Payment method used in checkout",
+          "enum": [
+            "pix",
+            "credit_card",
+            "billet"
+          ],
+          "minLength": 1,
+          "maxLength": 32
+        },
+        "installments": {
+          "type": "number",
+          "description": "Number of credit card installments"
+        },
+        "grossAmount": {
+          "type": "number",
+          "description": "Total amount paid by the customer including shipping"
+        },
+        "netAmount": {
+          "type": "number",
+          "description": "Net amount after checkout/gateway fees"
+        },
+        "checkoutFee": {
+          "type": "number",
+          "description": "Cartpanda or checkout fee amount"
+        },
+        "gatewayFee": {
+          "type": "number",
+          "description": "Payment gateway fee amount"
+        },
+        "shippingCost": {
+          "type": "number",
+          "description": "Real shipping cost paid by merchant"
+        },
+        "taxAmount": {
+          "type": "number",
+          "description": "Tax amount based on store tax rate"
+        },
+        "cogsAmount": {
+          "type": "number",
+          "description": "Total Cost of Goods Sold (CMV) for order items"
+        },
+        "netProfit": {
+          "type": "number",
+          "description": "Real net profit of the order"
+        },
+        "profitMargin": {
+          "type": "number",
+          "description": "Real profit margin percentage"
+        },
+        "utmSource": {
+          "type": "string",
+          "description": "UTM source parameter",
+          "minLength": 0,
+          "maxLength": 120
+        },
+        "utmCampaign": {
+          "type": "string",
+          "description": "UTM campaign parameter",
+          "minLength": 0,
+          "maxLength": 160
+        },
+        "utmMedium": {
+          "type": "string",
+          "description": "UTM medium parameter",
+          "minLength": 0,
+          "maxLength": 120
+        },
+        "utmContent": {
+          "type": "string",
+          "description": "UTM content parameter",
+          "minLength": 0,
+          "maxLength": 160
+        },
+        "utmTerm": {
+          "type": "string",
+          "description": "UTM term parameter",
+          "minLength": 0,
+          "maxLength": 120
+        },
+        "orderDate": {
+          "type": "string",
+          "description": "ISO timestamp of the order in America/Sao_Paulo (-03:00)",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "itemsSummary": {
+          "type": "string",
+          "description": "Concise summary of products in the order",
+          "minLength": 0,
+          "maxLength": 500
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp"
+        }
+      },
+      "required": [
+        "ownerId",
+        "orderNumber",
+        "cartpandaId",
+        "shopifyId",
+        "customerName",
+        "customerEmail",
+        "customerPhone",
+        "status",
+        "paymentMethod",
+        "installments",
+        "grossAmount",
+        "netAmount",
+        "checkoutFee",
+        "gatewayFee",
+        "shippingCost",
+        "taxAmount",
+        "cogsAmount",
+        "netProfit",
+        "profitMargin",
+        "utmSource",
+        "utmCampaign",
+        "utmMedium",
+        "utmContent",
+        "utmTerm",
+        "orderDate",
+        "itemsSummary",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "OrderItem": {
+      "title": "OrderItem",
+      "description": "Line item belonging to an Order with unit price and unit cost (CMV).",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "UID of the store owner",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "orderId": {
+          "type": "string",
+          "description": "ID of the parent Order document",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "productId": {
+          "type": "string",
+          "description": "ID of the Product document",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "title": {
+          "type": "string",
+          "description": "Product title at time of purchase",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "sku": {
+          "type": "string",
+          "description": "Product SKU code",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "quantity": {
+          "type": "number",
+          "description": "Quantity purchased"
+        },
+        "unitPrice": {
+          "type": "number",
+          "description": "Unit selling price"
+        },
+        "unitCost": {
+          "type": "number",
+          "description": "Unit CMV cost"
+        },
+        "totalPrice": {
+          "type": "number",
+          "description": "Total line item revenue"
+        },
+        "totalCost": {
+          "type": "number",
+          "description": "Total line item CMV cost"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp"
+        }
+      },
+      "required": [
+        "ownerId",
+        "orderId",
+        "productId",
+        "title",
+        "sku",
+        "quantity",
+        "unitPrice",
+        "unitCost",
+        "totalPrice",
+        "totalCost",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Product": {
+      "title": "Product",
+      "description": "Catalog product with selling price, CMV unit cost, and inventory.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "UID of the store owner",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "shopifyId": {
+          "type": "string",
+          "description": "External Shopify product ID",
+          "minLength": 0,
+          "maxLength": 128
+        },
+        "title": {
+          "type": "string",
+          "description": "Product name",
+          "minLength": 1,
+          "maxLength": 200
+        },
+        "sku": {
+          "type": "string",
+          "description": "Unique product SKU",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "imageUrl": {
+          "type": "string",
+          "description": "Product visual identifier or URL",
+          "minLength": 0,
+          "maxLength": 500
+        },
+        "price": {
+          "type": "number",
+          "description": "Selling price in BRL"
+        },
+        "costPrice": {
+          "type": "number",
+          "description": "Unit CMV (Cost of Goods Sold) in BRL"
+        },
+        "stockQuantity": {
+          "type": "number",
+          "description": "Available inventory units"
+        },
+        "active": {
+          "type": "boolean",
+          "description": "Whether the product is active"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp"
+        }
+      },
+      "required": [
+        "ownerId",
+        "shopifyId",
+        "title",
+        "sku",
+        "imageUrl",
+        "price",
+        "costPrice",
+        "stockQuantity",
+        "active",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "AdSpend": {
+      "title": "AdSpend",
+      "description": "Daily ad spend per campaign and source standardized to America/Sao_Paulo noon.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "UID of the store owner",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "date": {
+          "type": "string",
+          "description": "Standardized ISO date at noon Brasilia (YYYY-MM-DDT12:00:00-03:00)",
+          "minLength": 10,
+          "maxLength": 40
+        },
+        "utmCampaign": {
+          "type": "string",
+          "description": "Campaign name or UTM campaign identifier",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "utmSource": {
+          "type": "string",
+          "description": "Ad traffic source (e.g. facebook)",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "spend": {
+          "type": "number",
+          "description": "Amount spent in BRL"
+        },
+        "clicks": {
+          "type": "number",
+          "description": "Total clicks recorded"
+        },
+        "impressions": {
+          "type": "number",
+          "description": "Total impressions recorded"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp"
+        }
+      },
+      "required": [
+        "ownerId",
+        "date",
+        "utmCampaign",
+        "utmSource",
+        "spend",
+        "clicks",
+        "impressions",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "CustomExpense": {
+      "title": "CustomExpense",
+      "description": "Fixed or variable operational expense or extra revenue entry for DRE calculation.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "UID of the store owner",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "name": {
+          "type": "string",
+          "description": "Expense or revenue description",
+          "minLength": 1,
+          "maxLength": 160
+        },
+        "type": {
+          "type": "string",
+          "description": "Entry direction ('out' for expense, 'in' for revenue)",
+          "enum": [
+            "out",
+            "in"
+          ],
+          "minLength": 2,
+          "maxLength": 10
+        },
+        "amount": {
+          "type": "number",
+          "description": "Value in BRL"
+        },
+        "recurrence": {
+          "type": "string",
+          "description": "Frequency of the expense",
+          "enum": [
+            "monthly",
+            "weekly",
+            "one_time"
+          ],
+          "minLength": 4,
+          "maxLength": 20
+        },
+        "startDate": {
+          "type": "string",
+          "description": "Start date in America/Sao_Paulo",
+          "minLength": 10,
+          "maxLength": 40
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp"
+        }
+      },
+      "required": [
+        "ownerId",
+        "name",
+        "type",
+        "amount",
+        "recurrence",
+        "startDate",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "Settings": {
+      "title": "Settings",
+      "description": "Store tax rate, Cartpanda checkout fees, Meta Ads API credentials, Cartpanda API token, and anti-test phone filter list.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "description": "UID of the store owner",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "storeName": {
+          "type": "string",
+          "description": "Display name of the e-commerce store",
+          "minLength": 1,
+          "maxLength": 120
+        },
+        "taxRate": {
+          "type": "number",
+          "description": "Simples Nacional or effective tax rate percentage (e.g. 4.5)"
+        },
+        "cartpandaPixFeePercent": {
+          "type": "number",
+          "description": "Pix fee percentage on Cartpanda checkout"
+        },
+        "cartpandaPixFeeFixed": {
+          "type": "number",
+          "description": "Fixed Pix fee in BRL on Cartpanda checkout"
+        },
+        "cartpandaCardFeePercent": {
+          "type": "number",
+          "description": "Credit card fee percentage on Cartpanda checkout"
+        },
+        "cartpandaCardFeeFixed": {
+          "type": "number",
+          "description": "Fixed credit card fee in BRL on Cartpanda checkout"
+        },
+        "cartpandaBilletFeeFixed": {
+          "type": "number",
+          "description": "Fixed billet fee in BRL on Cartpanda checkout"
+        },
+        "metaAccessToken": {
+          "type": "string",
+          "description": "Meta Ads Graph API access token",
+          "minLength": 0,
+          "maxLength": 500
+        },
+        "metaAdAccountId": {
+          "type": "string",
+          "description": "Meta Ads Account ID (e.g. act_123456789)",
+          "minLength": 0,
+          "maxLength": 120
+        },
+        "lastSyncAt": {
+          "type": "string",
+          "description": "ISO timestamp of last Meta Ads sync",
+          "minLength": 0,
+          "maxLength": 40
+        },
+        "cartpandaApiToken": {
+          "type": "string",
+          "description": "Bearer token for Cartpanda REST API",
+          "minLength": 0,
+          "maxLength": 500
+        },
+        "cartpandaStoreSlug": {
+          "type": "string",
+          "description": "Store slug for Cartpanda REST API",
+          "minLength": 0,
+          "maxLength": 120
+        },
+        "lastCartpandaSyncAt": {
+          "type": "string",
+          "description": "ISO timestamp of last Cartpanda sync",
+          "minLength": 0,
+          "maxLength": 40
+        },
+        "blockedTestPhones": {
+          "type": "string",
+          "description": "Comma-separated list of test phone numbers ignored in webhooks and sync (default includes (41) 99582-4010)",
+          "minLength": 0,
+          "maxLength": 400
+        },
+        "dashboardPassword": {
+          "type": "string",
+          "description": "Password to enter and unlock the dashboard view (default: thiagodj97)",
+          "minLength": 0,
+          "maxLength": 100
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server creation timestamp"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server update timestamp"
+        }
+      },
+      "required": [
+        "ownerId",
+        "storeName",
+        "taxRate",
+        "cartpandaPixFeePercent",
+        "cartpandaPixFeeFixed",
+        "cartpandaCardFeePercent",
+        "cartpandaCardFeeFixed",
+        "cartpandaBilletFeeFixed",
+        "metaAccessToken",
+        "metaAdAccountId",
+        "lastSyncAt",
+        "cartpandaApiToken",
+        "cartpandaStoreSlug",
+        "lastCartpandaSyncAt",
+        "blockedTestPhones",
+        "createdAt",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/orders/{orderId}": {
+      "schema": {
+        "$ref": "#/entities/Order"
+      },
+      "description": "Store orders with full real profit breakdown and PII restricted to ownerId."
+    },
+    "/order_items/{itemId}": {
+      "schema": {
+        "$ref": "#/entities/OrderItem"
+      },
+      "description": "Line items referencing an Order document owned by the same user."
+    },
+    "/products/{productId}": {
+      "schema": {
+        "$ref": "#/entities/Product"
+      },
+      "description": "Store products with selling price and CMV unit cost."
+    },
+    "/ad_spends/{adSpendId}": {
+      "schema": {
+        "$ref": "#/entities/AdSpend"
+      },
+      "description": "Daily campaign ad spend records synced from Meta Ads."
+    },
+    "/custom_expenses/{expenseId}": {
+      "schema": {
+        "$ref": "#/entities/CustomExpense"
+      },
+      "description": "Recurring or one-time fixed expenses and extra revenues for DRE."
+    },
+    "/settings/{settingId}": {
+      "schema": {
+        "$ref": "#/entities/Settings"
+      },
+      "description": "Per-owner store settings and API credentials where settingId matches ownerId."
+    }
+  }
+}

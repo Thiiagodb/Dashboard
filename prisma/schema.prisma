@@ -1,0 +1,123 @@
+// prisma/schema.prisma
+// Schema oficial do Profit Dashboard (SaaS de Lucro Real & Gestão E-commerce)
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Order {
+  id            String      @id @default(cuid())
+  orderNumber   String      @unique
+  cartpandaId   String?     @unique
+  shopifyId     String?     @unique
+  customerName  String
+  customerEmail String
+  customerPhone String?
+  status        String      // 'approved' | 'paid_unfulfilled' | 'pending' | 'abandoned' | 'canceled' | 'refunded'
+  paymentMethod String      // 'pix' | 'credit_card' | 'billet'
+  installments  Int         @default(1)
+  grossAmount   Float       // Total pago pelo cliente (Produtos + Frete cobrado)
+  netAmount     Float       // Valor líquido após checkout fee (grossAmount - checkoutFee)
+  checkoutFee   Float       @default(0)
+  gatewayFee    Float       @default(0)
+  shippingCost  Float       @default(0)
+  taxAmount     Float       @default(0)
+  cogsAmount    Float       @default(0) // CMV total dos itens
+  netProfit     Float       // netAmount - cogsAmount - taxAmount - shippingCost
+  profitMargin  Float       // (netProfit / grossAmount) * 100
+  utmSource     String?
+  utmCampaign   String?
+  utmMedium     String?
+  utmContent    String?
+  utmTerm       String?
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  items         OrderItem[]
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([utmCampaign])
+}
+
+model OrderItem {
+  id         String   @id @default(cuid())
+  orderId    String
+  productId  String?
+  title      String
+  sku        String
+  quantity   Int
+  unitPrice  Float
+  unitCost   Float
+  totalPrice Float
+  totalCost  Float
+  order      Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  product    Product? @relation(fields: [productId], references: [id], onDelete: SetNull)
+
+  @@index([orderId])
+  @@index([productId])
+}
+
+model Product {
+  id            String      @id @default(cuid())
+  shopifyId     String?     @unique
+  title         String
+  sku           String      @unique
+  imageUrl      String?
+  price         Float
+  costPrice     Float       // CMV unitário
+  stockQuantity Int         @default(0)
+  active        Boolean     @default(true)
+  createdAt     DateTime    @default(now())
+  updatedAt     DateTime    @updatedAt
+  orderItems    OrderItem[]
+}
+
+model AdSpend {
+  id          String   @id @default(cuid())
+  date        DateTime // Padronizado YYYY-MM-DDT12:00:00-03:00
+  utmCampaign String
+  utmSource   String   @default("facebook")
+  spend       Float
+  clicks      Int      @default(0)
+  impressions Int      @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@unique([date, utmCampaign, utmSource])
+  @@index([date])
+}
+
+model CustomExpense {
+  id         String   @id @default(cuid())
+  name       String
+  type       String   // 'out' (despesa) | 'in' (receita)
+  amount     Float
+  recurrence String   // 'monthly' | 'weekly' | 'one_time'
+  startDate  DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+}
+
+model Settings {
+  id                      String    @id @default("default")
+  storeName               String    @default("Minha Loja E-commerce")
+  taxRate                 Float     @default(4.5) // ex: 4.5% Simples Nacional
+  cartpandaPixFeePercent  Float     @default(0.99)
+  cartpandaPixFeeFixed    Float     @default(0.0)
+  cartpandaCardFeePercent Float     @default(4.99)
+  cartpandaCardFeeFixed   Float     @default(1.0)
+  cartpandaBilletFeeFixed Float     @default(3.49)
+  metaAccessToken         String?
+  metaAdAccountId         String?
+  lastSyncAt              DateTime?
+  cartpandaApiToken       String?
+  cartpandaStoreSlug      String?
+  lastCartpandaSyncAt     DateTime?
+  blockedTestPhones       String    @default("(41) 99582-4010")
+  updatedAt               DateTime  @updatedAt
+}

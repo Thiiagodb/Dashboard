@@ -1,0 +1,250 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net (Default Deny)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Global Primitives
+    function isSignedIn() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isOwner(ownerId) {
+      return isSignedIn() && request.auth.uid == ownerId;
+    }
+
+    // Validation Blueprint: Order
+    function isValidOrder(data) {
+      return data.keys().hasAll([
+        'ownerId', 'orderNumber', 'cartpandaId', 'shopifyId',
+        'customerName', 'customerEmail', 'customerPhone',
+        'status', 'paymentMethod', 'installments',
+        'grossAmount', 'netAmount', 'checkoutFee', 'gatewayFee',
+        'shippingCost', 'taxAmount', 'cogsAmount', 'netProfit', 'profitMargin',
+        'utmSource', 'utmCampaign', 'utmMedium', 'utmContent', 'utmTerm',
+        'orderDate', 'itemsSummary'
+      ]) &&
+      data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+      data.ownerId == request.auth.uid &&
+      data.orderNumber is string && data.orderNumber.size() >= 1 && data.orderNumber.size() <= 64 &&
+      data.cartpandaId is string && data.cartpandaId.size() <= 128 &&
+      data.shopifyId is string && data.shopifyId.size() <= 128 &&
+      data.customerName is string && data.customerName.size() <= 160 &&
+      data.customerEmail is string && data.customerEmail.size() <= 160 &&
+      data.customerPhone is string && data.customerPhone.size() <= 40 &&
+      data.status is string && data.status.size() >= 1 && data.status.size() <= 32 &&
+      (data.status == 'approved' || data.status == 'paid_unfulfilled' || data.status == 'pending' || data.status == 'abandoned' || data.status == 'canceled' || data.status == 'refunded') &&
+      data.paymentMethod is string && data.paymentMethod.size() >= 1 && data.paymentMethod.size() <= 32 &&
+      (data.paymentMethod == 'pix' || data.paymentMethod == 'credit_card' || data.paymentMethod == 'billet') &&
+      data.installments is number && data.installments >= 1 && data.installments <= 24 &&
+      data.grossAmount is number && data.grossAmount >= 0 &&
+      data.netAmount is number &&
+      data.checkoutFee is number && data.checkoutFee >= 0 &&
+      data.gatewayFee is number && data.gatewayFee >= 0 &&
+      data.shippingCost is number && data.shippingCost >= 0 &&
+      data.taxAmount is number && data.taxAmount >= 0 &&
+      data.cogsAmount is number && data.cogsAmount >= 0 &&
+      data.netProfit is number &&
+      data.profitMargin is number &&
+      data.utmSource is string && data.utmSource.size() <= 120 &&
+      data.utmCampaign is string && data.utmCampaign.size() <= 160 &&
+      data.utmMedium is string && data.utmMedium.size() <= 120 &&
+      data.utmContent is string && data.utmContent.size() <= 160 &&
+      data.utmTerm is string && data.utmTerm.size() <= 120 &&
+      data.orderDate is string && data.orderDate.size() >= 1 && data.orderDate.size() <= 60 &&
+      data.itemsSummary is string && data.itemsSummary.size() <= 500 &&
+      (!('createdAt' in data) || data.createdAt is timestamp || data.createdAt is string) &&
+      (!('updatedAt' in data) || data.updatedAt is timestamp || data.updatedAt is string);
+    }
+
+    // Validation Blueprint: OrderItem
+    function isValidOrderItem(data) {
+      return data.keys().hasAll([
+        'ownerId', 'orderId', 'productId', 'title', 'sku',
+        'quantity', 'unitPrice', 'unitCost', 'totalPrice', 'totalCost'
+      ]) &&
+      data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+      data.ownerId == request.auth.uid &&
+      isValidId(data.orderId) &&
+      isValidId(data.productId) &&
+      data.title is string && data.title.size() <= 200 &&
+      data.sku is string && data.sku.size() <= 80 &&
+      data.quantity is number && data.quantity >= 1 &&
+      data.unitPrice is number && data.unitPrice >= 0 &&
+      data.unitCost is number && data.unitCost >= 0 &&
+      data.totalPrice is number && data.totalPrice >= 0 &&
+      data.totalCost is number && data.totalCost >= 0 &&
+      (!('createdAt' in data) || data.createdAt is timestamp || data.createdAt is string) &&
+      (!('updatedAt' in data) || data.updatedAt is timestamp || data.updatedAt is string);
+    }
+
+    // Validation Blueprint: Product
+    function isValidProduct(data) {
+      return data.keys().hasAll([
+        'ownerId', 'shopifyId', 'title', 'sku', 'imageUrl',
+        'price', 'costPrice', 'stockQuantity', 'active'
+      ]) &&
+      data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+      data.ownerId == request.auth.uid &&
+      data.shopifyId is string && data.shopifyId.size() <= 128 &&
+      data.title is string && data.title.size() <= 200 &&
+      data.sku is string && data.sku.size() <= 80 &&
+      data.imageUrl is string && data.imageUrl.size() <= 500 &&
+      data.price is number && data.price >= 0 &&
+      data.costPrice is number && data.costPrice >= 0 &&
+      data.stockQuantity is number && data.stockQuantity >= 0 &&
+      data.active is bool &&
+      (!('createdAt' in data) || data.createdAt is timestamp || data.createdAt is string) &&
+      (!('updatedAt' in data) || data.updatedAt is timestamp || data.updatedAt is string);
+    }
+
+    // Validation Blueprint: AdSpend
+    function isValidAdSpend(data) {
+      return data.keys().hasAll([
+        'ownerId', 'date', 'utmCampaign', 'utmSource',
+        'spend', 'clicks', 'impressions'
+      ]) &&
+      data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+      data.ownerId == request.auth.uid &&
+      data.date is string && data.date.size() >= 1 && data.date.size() <= 40 &&
+      data.utmCampaign is string && data.utmCampaign.size() <= 160 &&
+      data.utmSource is string && data.utmSource.size() <= 80 &&
+      data.spend is number && data.spend >= 0 &&
+      data.clicks is number && data.clicks >= 0 &&
+      data.impressions is number && data.impressions >= 0 &&
+      (!('createdAt' in data) || data.createdAt is timestamp || data.createdAt is string) &&
+      (!('updatedAt' in data) || data.updatedAt is timestamp || data.updatedAt is string);
+    }
+
+    // Validation Blueprint: CustomExpense
+    function isValidCustomExpense(data) {
+      return data.keys().hasAll([
+        'ownerId', 'name', 'type', 'amount', 'recurrence', 'startDate'
+      ]) &&
+      data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+      data.ownerId == request.auth.uid &&
+      data.name is string && data.name.size() <= 160 &&
+      data.type is string &&
+      (data.type == 'out' || data.type == 'in') &&
+      data.amount is number && data.amount >= 0 &&
+      data.recurrence is string &&
+      (data.recurrence == 'monthly' || data.recurrence == 'weekly' || data.recurrence == 'one_time') &&
+      data.startDate is string && data.startDate.size() >= 1 && data.startDate.size() <= 40 &&
+      (!('createdAt' in data) || data.createdAt is timestamp || data.createdAt is string) &&
+      (!('updatedAt' in data) || data.updatedAt is timestamp || data.updatedAt is string);
+    }
+
+    // Validation Blueprint: Settings
+    function isValidSettings(data) {
+      return data.keys().hasAll([
+        'ownerId', 'storeName', 'taxRate',
+        'cartpandaPixFeePercent', 'cartpandaPixFeeFixed',
+        'cartpandaCardFeePercent', 'cartpandaCardFeeFixed',
+        'cartpandaBilletFeeFixed',
+        'metaAccessToken', 'metaAdAccountId', 'lastSyncAt',
+        'cartpandaApiToken', 'cartpandaStoreSlug', 'lastCartpandaSyncAt',
+        'blockedTestPhones'
+      ]) &&
+      data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128 &&
+      data.ownerId == request.auth.uid &&
+      data.storeName is string && data.storeName.size() <= 120 &&
+      data.taxRate is number && data.taxRate >= 0 && data.taxRate <= 100 &&
+      (!('cartpandaOrderFeePercent' in data) || (data.cartpandaOrderFeePercent is number && data.cartpandaOrderFeePercent >= 0 && data.cartpandaOrderFeePercent <= 100)) &&
+      data.cartpandaPixFeePercent is number && data.cartpandaPixFeePercent >= 0 && data.cartpandaPixFeePercent <= 100 &&
+      data.cartpandaPixFeeFixed is number && data.cartpandaPixFeeFixed >= 0 &&
+      data.cartpandaCardFeePercent is number && data.cartpandaCardFeePercent >= 0 && data.cartpandaCardFeePercent <= 100 &&
+      data.cartpandaCardFeeFixed is number && data.cartpandaCardFeeFixed >= 0 &&
+      data.cartpandaBilletFeeFixed is number && data.cartpandaBilletFeeFixed >= 0 &&
+      data.metaAccessToken is string && data.metaAccessToken.size() <= 500 &&
+      data.metaAdAccountId is string && data.metaAdAccountId.size() <= 120 &&
+      data.lastSyncAt is string && data.lastSyncAt.size() <= 40 &&
+      data.cartpandaApiToken is string && data.cartpandaApiToken.size() <= 500 &&
+      data.cartpandaStoreSlug is string && data.cartpandaStoreSlug.size() <= 120 &&
+      data.lastCartpandaSyncAt is string && data.lastCartpandaSyncAt.size() <= 40 &&
+      data.blockedTestPhones is string && data.blockedTestPhones.size() <= 400 &&
+      (!('dashboardPassword' in data) || (data.dashboardPassword is string && data.dashboardPassword.size() <= 100)) &&
+      (!('createdAt' in data) || data.createdAt is timestamp || data.createdAt is string) &&
+      (!('updatedAt' in data) || data.updatedAt is timestamp || data.updatedAt is string);
+    }
+
+    // Collection: /orders/{orderId}
+    match /orders/{orderId} {
+      allow get: if isValidId(orderId) && isOwner(existing().ownerId);
+      allow list: if isSignedIn() && existing().ownerId == request.auth.uid;
+      allow create: if isValidId(orderId) && isSignedIn() && isValidOrder(incoming());
+      allow update: if isValidId(orderId) && isSignedIn() && isValidOrder(incoming()) &&
+        isOwner(existing().ownerId) &&
+        incoming().ownerId == existing().ownerId;
+      allow delete: if isValidId(orderId) && isOwner(existing().ownerId);
+    }
+
+    // Collection: /order_items/{itemId}
+    match /order_items/{itemId} {
+      allow get: if isValidId(itemId) && isOwner(existing().ownerId);
+      allow list: if isSignedIn() && existing().ownerId == request.auth.uid;
+      allow create: if isValidId(itemId) && isSignedIn() && isValidOrderItem(incoming());
+      allow update: if isValidId(itemId) && isSignedIn() && isValidOrderItem(incoming()) &&
+        isOwner(existing().ownerId) &&
+        incoming().ownerId == existing().ownerId;
+      allow delete: if isValidId(itemId) && isOwner(existing().ownerId);
+    }
+
+    // Collection: /products/{productId}
+    match /products/{productId} {
+      allow get: if isValidId(productId) && isOwner(existing().ownerId);
+      allow list: if isSignedIn() && existing().ownerId == request.auth.uid;
+      allow create: if isValidId(productId) && isSignedIn() && isValidProduct(incoming());
+      allow update: if isValidId(productId) && isSignedIn() && isValidProduct(incoming()) &&
+        isOwner(existing().ownerId) &&
+        incoming().ownerId == existing().ownerId;
+      allow delete: if isValidId(productId) && isOwner(existing().ownerId);
+    }
+
+    // Collection: /ad_spends/{adSpendId}
+    match /ad_spends/{adSpendId} {
+      allow get: if isValidId(adSpendId) && isOwner(existing().ownerId);
+      allow list: if isSignedIn() && existing().ownerId == request.auth.uid;
+      allow create: if isValidId(adSpendId) && isSignedIn() && isValidAdSpend(incoming());
+      allow update: if isValidId(adSpendId) && isSignedIn() && isValidAdSpend(incoming()) &&
+        isOwner(existing().ownerId) &&
+        incoming().ownerId == existing().ownerId;
+      allow delete: if isValidId(adSpendId) && isOwner(existing().ownerId);
+    }
+
+    // Collection: /custom_expenses/{expenseId}
+    match /custom_expenses/{expenseId} {
+      allow get: if isValidId(expenseId) && isOwner(existing().ownerId);
+      allow list: if isSignedIn() && existing().ownerId == request.auth.uid;
+      allow create: if isValidId(expenseId) && isSignedIn() && isValidCustomExpense(incoming());
+      allow update: if isValidId(expenseId) && isSignedIn() && isValidCustomExpense(incoming()) &&
+        isOwner(existing().ownerId) &&
+        incoming().ownerId == existing().ownerId;
+      allow delete: if isValidId(expenseId) && isOwner(existing().ownerId);
+    }
+
+    // Collection: /settings/{settingId}
+    match /settings/{settingId} {
+      allow get: if isValidId(settingId) && settingId == request.auth.uid && isOwner(existing().ownerId);
+      allow list: if isSignedIn() && existing().ownerId == request.auth.uid;
+      allow create: if isValidId(settingId) && settingId == request.auth.uid && isSignedIn() && isValidSettings(incoming());
+      allow update: if isValidId(settingId) && settingId == request.auth.uid && isSignedIn() && isValidSettings(incoming()) &&
+        isOwner(existing().ownerId) &&
+        incoming().ownerId == existing().ownerId;
+      allow delete: if isValidId(settingId) && settingId == request.auth.uid && isOwner(existing().ownerId);
+    }
+  }
+}

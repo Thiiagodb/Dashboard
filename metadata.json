@@ -1,0 +1,6 @@
+{
+  "name": "Profit Dashboard — Gestão de Lucro Real E-commerce",
+  "description": "Plataforma financeira e operacional de Lucro Real, DRE em cascata, gestão de pedidos Cartpanda/Shopify e ROAS Real Meta Ads para e-commerce brasileiro.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
