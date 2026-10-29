@@ -10,6 +10,7 @@ import {
   BarChart3,
   Calculator,
   Calendar,
+  Cloud,
   Download,
   Eye,
   EyeOff,
@@ -1137,9 +1138,9 @@ export default function App() {
       {/* Main Content Area */}
       <div className="flex-1 md:pl-64 flex flex-col min-h-screen pb-24 md:pb-10">
         {/* Top Bar Contract: Breadcrumb on Left, Primary Action ("Atualizar dados") on Right */}
-        <header className="h-14 sm:h-16 px-3 sm:px-8 border-b border-slate-800/90 bg-[#0B0F17]/95 backdrop-blur sticky top-0 z-20 flex items-center justify-between gap-2 sm:gap-6">
+        <header className="min-h-14 sm:min-h-16 pt-[env(safe-area-inset-top,0px)] px-3 sm:px-8 border-b border-slate-800/90 bg-[#0B0F17]/95 backdrop-blur sticky top-0 z-20 flex items-center justify-between gap-2 sm:gap-6">
           <div className="flex items-center gap-1.5 sm:gap-2 text-xs sm:text-sm font-medium text-slate-300 min-w-0">
-            <span className="text-slate-400 font-semibold truncate max-w-[120px] sm:max-w-none">
+            <span className="text-slate-400 font-semibold truncate max-w-[90px] sm:max-w-none">
               {settings.storeName}
             </span>
             <span className="text-slate-600">/</span>
@@ -1149,6 +1150,28 @@ export default function App() {
           </div>
 
           <div className="flex items-center gap-1.5 sm:gap-2.5 shrink-0">
+            {/* Cloud Sync Status Icon Button - mobile & desktop */}
+            <button
+              type="button"
+              onClick={() => setActiveRoute('settings')}
+              className="flex items-center gap-1 p-2 sm:px-2.5 sm:py-2 text-xs font-medium rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 transition-colors cursor-pointer"
+              title={
+                user
+                  ? `Nuvem conectada (${user.email}). Clique para ver configurações.`
+                  : 'Armazenamento local. Toque para conectar conta na nuvem.'
+              }
+            >
+              <Cloud className={`w-3.5 h-3.5 ${user ? 'text-emerald-400' : 'text-amber-400'}`} />
+              <span
+                className={`w-1.5 h-1.5 rounded-full ${
+                  user ? 'bg-emerald-400 animate-pulse' : 'bg-amber-400'
+                }`}
+              />
+              <span className="hidden sm:inline text-[11px] text-slate-300">
+                {user ? 'Nuvem' : 'Conectar'}
+              </span>
+            </button>
+
             <button
               type="button"
               onClick={handleLockDashboard}
@@ -1182,10 +1205,10 @@ export default function App() {
                     : ''
                 }`}
               />
-              <span className="hidden xs:inline sm:inline">
+              <span className="hidden sm:inline">
                 {isSyncingAll ? 'Sincronizando...' : 'Atualizar dados'}
               </span>
-              <span className="inline xs:hidden sm:hidden">
+              <span className="sm:hidden">
                 {isSyncingAll ? '...' : 'Atualizar'}
               </span>
             </button>
@@ -1369,6 +1392,10 @@ export default function App() {
               onImportCsvOrders={handleImportCsvOrders}
               onPurgeTestOrders={handlePurgeTestOrders}
               onLockDashboard={handleLockDashboard}
+              user={user}
+              authReady={authReady}
+              onGoogleSignIn={handleGoogleSignIn}
+              onSignOut={handleSignOut}
             />
           )}
         </main>

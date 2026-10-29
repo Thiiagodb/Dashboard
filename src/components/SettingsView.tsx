@@ -1,8 +1,10 @@
 import React, { useRef, useState } from 'react';
+import { User } from 'firebase/auth';
 import {
   AlertCircle,
   Check,
   CheckCircle2,
+  Cloud,
   Copy,
   Eye,
   EyeOff,
@@ -10,6 +12,8 @@ import {
   HelpCircle,
   KeyRound,
   Lock,
+  LogIn,
+  LogOut,
   RefreshCw,
   Save,
   Send,
@@ -58,6 +62,10 @@ interface SettingsViewProps {
   onImportCsvOrders?: (csvText: string) => Promise<void>;
   onPurgeTestOrders: () => Promise<void>;
   onLockDashboard?: () => void;
+  user?: User | null;
+  authReady?: boolean;
+  onGoogleSignIn?: () => Promise<void>;
+  onSignOut?: () => Promise<void>;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
@@ -71,6 +79,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onImportCsvOrders,
   onPurgeTestOrders,
   onLockDashboard,
+  user,
+  authReady,
+  onGoogleSignIn,
+  onSignOut,
 }) => {
   const [formData, setFormData] = useState<Omit<SettingsRecord, 'id' | 'ownerId'>>({
     storeName: settings.storeName,
@@ -349,6 +361,94 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* ================= CARD 0: SINCRONIZAÇÃO NA NUVEM (GOOGLE / FIRESTORE) ================= */}
+        <div className="bg-[#111827] border border-slate-800 rounded-xl p-5 space-y-4 shadow-sm flex flex-col justify-between lg:col-span-2">
+          <div className="space-y-3">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between pb-3 border-b border-slate-800 gap-2">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-sky-500/20 to-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                  <Cloud className="w-5 h-5" />
+                </div>
+                <div>
+                  <h2 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                    <span>Sincronização na Nuvem (Google / Firestore)</span>
+                    {user ? (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                        <CheckCircle2 className="w-3 h-3" />
+                        Nuvem Conectada
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-semibold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                        Armazenamento Local
+                      </span>
+                    )}
+                  </h2>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Mantenha seus dados (pedidos, anúncios e configurações) sincronizados entre o celular e computador
+                  </p>
+                </div>
+              </div>
+
+              {user && (
+                <div className="flex items-center gap-2 bg-slate-900 border border-slate-800 rounded-lg px-3 py-1.5 self-start sm:self-auto">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                  <span className="text-xs font-mono text-slate-300 truncate max-w-[200px]">
+                    {user.email}
+                  </span>
+                </div>
+              )}
+            </div>
+
+            <div className="p-3.5 bg-slate-900/60 border border-slate-800/80 rounded-lg text-xs text-slate-300 leading-relaxed">
+              {user ? (
+                <span>
+                  Sua conta está conectada e sincronizando em tempo real com o Firestore. Qualquer alteração feita aqui será refletida imediatamente no seu computador e celular.
+                </span>
+              ) : (
+                <span>
+                  Atualmente seus dados estão salvos apenas na memória deste dispositivo. Clique no botão abaixo para fazer login com o Google e habilitar o backup automático em tempo real na nuvem.
+                </span>
+              )}
+            </div>
+          </div>
+
+          <div className="pt-2 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3 border-t border-slate-800">
+            {user ? (
+              <div className="flex items-center justify-between w-full">
+                <span className="text-xs text-slate-400">
+                  ID de Usuário: <code className="text-slate-300 font-mono text-[11px]">{user.uid.slice(0, 12)}...</code>
+                </span>
+                {onSignOut && (
+                  <button
+                    type="button"
+                    onClick={onSignOut}
+                    className="px-4 py-2 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 text-rose-300 border border-slate-700 transition-colors flex items-center gap-2 cursor-pointer"
+                  >
+                    <LogOut className="w-3.5 h-3.5" />
+                    <span>Desconectar da Nuvem</span>
+                  </button>
+                )}
+              </div>
+            ) : (
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between w-full gap-2">
+                <span className="text-[11px] text-slate-400">
+                  Login seguro via Google OAuth 2.0
+                </span>
+                {onGoogleSignIn && (
+                  <button
+                    type="button"
+                    onClick={onGoogleSignIn}
+                    className="px-5 py-2.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-all flex items-center justify-center gap-2 shadow-md shadow-emerald-950/40 cursor-pointer active:scale-95"
+                  >
+                    <LogIn className="w-4 h-4" />
+                    <span>Entrar com o Google e Sincronizar</span>
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* ================= CARD 1: CARTPANDA ================= */}
         <div className="bg-[#111827] border border-slate-800 rounded-xl p-5 space-y-5 shadow-sm flex flex-col justify-between">
           <div className="space-y-4">

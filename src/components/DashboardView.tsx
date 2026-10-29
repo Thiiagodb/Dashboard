@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   Area,
   AreaChart,
@@ -18,6 +18,7 @@ import {
   Edit3,
   FileText,
   QrCode,
+  X,
 } from 'lucide-react';
 import {
   AdSpendRecord,
@@ -245,6 +246,32 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       .sort((a, b) => b.netProfit - a.netProfit);
   }, [products, paidOrders]);
 
+  const [bannerDismissed, setBannerDismissed] = useState(() => {
+    try {
+      return sessionStorage.getItem('dismiss_onboarding_banner') === 'true';
+    } catch {
+      return false;
+    }
+  });
+
+  // Auto-dismiss onboarding banner after 6 seconds
+  useEffect(() => {
+    if (bannerDismissed || orders.length > 0) return;
+    const timer = setTimeout(() => {
+      setBannerDismissed(true);
+    }, 6000);
+    return () => clearTimeout(timer);
+  }, [bannerDismissed, orders.length]);
+
+  const handleDismissBanner = () => {
+    setBannerDismissed(true);
+    try {
+      sessionStorage.setItem('dismiss_onboarding_banner', 'true');
+    } catch {
+      // ignore
+    }
+  };
+
   const handleSaveCost = async (prod: ProductRecord) => {
     const parsed = parseFloat(costInput.replace(',', '.'));
     if (!isNaN(parsed) && parsed >= 0) {
@@ -256,9 +283,18 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   return (
     <div className="space-y-6">
       {/* Onboarding Guide if no orders yet in the current period */}
-      {orders.length === 0 && (
-        <div className="bg-gradient-to-r from-[#111827] via-slate-900 to-[#111827] border border-emerald-500/30 rounded-xl p-5 shadow-sm">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+      {orders.length === 0 && !bannerDismissed && (
+        <div className="relative bg-gradient-to-r from-[#111827] via-slate-900 to-[#111827] border border-emerald-500/30 rounded-xl p-4 sm:p-5 shadow-sm animate-in fade-in duration-300">
+          <button
+            type="button"
+            onClick={handleDismissBanner}
+            className="absolute top-3 right-3 p-1.5 rounded-lg text-slate-400 hover:text-slate-200 hover:bg-slate-800/80 transition-colors cursor-pointer"
+            title="Fechar aviso"
+            aria-label="Fechar aviso"
+          >
+            <X className="w-4 h-4" />
+          </button>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pr-7 sm:pr-8">
             <div className="space-y-1">
               <h2 className="text-sm font-semibold text-slate-100 flex items-center gap-2">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
