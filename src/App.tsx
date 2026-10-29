@@ -411,7 +411,13 @@ export default function App() {
             datePreset: 'maximum',
           }),
         });
-        const data = await res.json();
+        const text = await res.text();
+        let data: any = {};
+        try {
+          data = text ? JSON.parse(text) : {};
+        } catch {
+          throw new Error(`Servidor não retornou JSON válido (${res.status}): ${text.slice(0, 100)}`);
+        }
         if (!res.ok || !data.ok) {
           throw new Error(data.error || 'Falha ao sincronizar Meta Ads');
         }
@@ -512,7 +518,13 @@ export default function App() {
             settings,
           }),
         });
-        const data = await res.json();
+        const text = await res.text();
+        let data: any = {};
+        try {
+          data = text ? JSON.parse(text) : {};
+        } catch {
+          throw new Error(`Servidor não retornou JSON válido (${res.status}): ${text.slice(0, 100)}`);
+        }
         if (!res.ok || !data.ok) {
           throw new Error(data.error || 'Falha ao sincronizar Cartpanda');
         }
