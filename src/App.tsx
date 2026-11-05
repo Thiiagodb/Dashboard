@@ -48,6 +48,7 @@ import {
   calculateOrderFinancials,
   CustomExpenseRecord,
   DatePeriodFilter,
+  extractProductsFromOrders,
   isDateInPeriod,
   isTestOrDemoOrderRecord,
   OrderExtraCost,
@@ -579,27 +580,45 @@ export default function App() {
           });
         }
 
-        // Merge any discovered products into catalog for CMV management
+        // Merge all discovered products into catalog for CMV management
         if (Array.isArray(data.discoveredProducts) && data.discoveredProducts.length > 0) {
           setProducts((prev) => {
-            const bySku = new Map(prev.map((p) => [p.sku, p]));
+            const bySkuOrTitle = new Map<string, ProductRecord>();
+            for (const p of prev) {
+              if (p.sku) bySkuOrTitle.set(p.sku.toLowerCase(), p);
+              if (p.title) bySkuOrTitle.set(p.title.toLowerCase().trim(), p);
+            }
+            const merged: ProductRecord[] = [...prev];
             for (const dp of data.discoveredProducts) {
-              if (!bySku.has(dp.sku)) {
-                bySku.set(dp.sku, {
-                  id: dp.id,
+              const skuKey = dp.sku ? dp.sku.toLowerCase() : '';
+              const titleKey = dp.title ? dp.title.toLowerCase().trim() : '';
+              const existing = (skuKey && bySkuOrTitle.get(skuKey)) || (titleKey && bySkuOrTitle.get(titleKey));
+
+              if (existing) {
+                existing.price = dp.price || existing.price;
+                if (dp.imageUrl && !existing.imageUrl) existing.imageUrl = dp.imageUrl;
+                if (dp.costPrice > 0 && (!existing.costPrice || existing.costPrice === 0)) {
+                  existing.costPrice = dp.costPrice;
+                }
+              } else {
+                const newRec: ProductRecord = {
+                  id: dp.id || `prod_${dp.sku}`,
                   ownerId: user ? user.uid : 'local_merchant',
-                  shopifyId: '',
+                  shopifyId: dp.shopifyId || '',
                   title: dp.title,
                   sku: dp.sku,
-                  imageUrl: '',
+                  imageUrl: dp.imageUrl || '',
                   price: dp.price,
-                  costPrice: dp.costPrice,
-                  stockQuantity: 100,
+                  costPrice: dp.costPrice || 0,
+                  stockQuantity: dp.stockQuantity || 100,
                   active: true,
-                });
+                };
+                merged.push(newRec);
+                if (skuKey) bySkuOrTitle.set(skuKey, newRec);
+                if (titleKey) bySkuOrTitle.set(titleKey, newRec);
               }
             }
-            return Array.from(bySku.values());
+            return merged;
           });
         }
 
@@ -619,6 +638,92 @@ export default function App() {
     },
     [settings, user]
   );
+
+  // Direct Sync of all Products from Cartpanda Store
+  const handleSyncCartpandaProducts = async () => {
+    const token =
+      settings.cartpandaApiToken ||
+      'G3HOhYVTxc8FErGhSPqoQmSV0xAOTWT7GT8nnrlACqB02TMHG09G5vx4Jit9';
+    const slug = settings.cartpandaStoreSlug || 'petcaju';
+    const toastId = toast.loading('Sincronizando todos os produtos da loja Cartpanda...');
+
+    try {
+      const res = await fetch('/api/cartpanda/products', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          cartpandaApiToken: token,
+          cartpandaStoreSlug: slug,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        throw new Error(data.error || 'Falha ao buscar produtos da Cartpanda');
+      }
+
+      const fetchedProducts: ProductRecord[] = data.products || [];
+      if (fetchedProducts.length === 0) {
+        toast('Nenhum produto retornado pela loja.', { id: toastId, icon: '⚠️' });
+        return;
+      }
+
+      setProducts((prev) => {
+        const bySkuOrTitle = new Map<string, ProductRecord>();
+        for (const p of prev) {
+          if (p.sku) bySkuOrTitle.set(p.sku.toLowerCase(), p);
+          if (p.title) bySkuOrTitle.set(p.title.toLowerCase().trim(), p);
+        }
+
+        const merged: ProductRecord[] = [...prev];
+        for (const fp of fetchedProducts) {
+          const skuKey = fp.sku ? fp.sku.toLowerCase() : '';
+          const titleKey = fp.title ? fp.title.toLowerCase().trim() : '';
+
+          const existing =
+            (skuKey && bySkuOrTitle.get(skuKey)) ||
+            (titleKey && bySkuOrTitle.get(titleKey));
+
+          if (existing) {
+            existing.price = fp.price || existing.price;
+            if (fp.imageUrl && !existing.imageUrl) existing.imageUrl = fp.imageUrl;
+            if (fp.costPrice > 0 && (!existing.costPrice || existing.costPrice === 0)) {
+              existing.costPrice = fp.costPrice;
+            }
+          } else {
+            const newRecord: ProductRecord = {
+              ...fp,
+              ownerId: user ? user.uid : 'local_merchant',
+            };
+            merged.push(newRecord);
+            if (skuKey) bySkuOrTitle.set(skuKey, newRecord);
+            if (titleKey) bySkuOrTitle.set(titleKey, newRecord);
+          }
+        }
+        return merged;
+      });
+
+      toast.success(
+        `${fetchedProducts.length} produtos da loja Cartpanda sincronizados com sucesso!`,
+        { id: toastId }
+      );
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Erro ao sincronizar produtos';
+      toast.error(msg, { id: toastId });
+    }
+  };
+
+  // Auto-reconcile products from orders so every product ever ordered is in the catalog
+  useEffect(() => {
+    if (orders.length > 0) {
+      setProducts((prev) => {
+        const reconciled = extractProductsFromOrders(orders, prev);
+        if (reconciled.length !== prev.length) {
+          return reconciled;
+        }
+        return prev;
+      });
+    }
+  }, [orders]);
 
   // Import Orders from CSV (Cartpanda / Shopify export)
   const handleImportCsvOrders = async (csvText: string) => {
@@ -1530,7 +1635,7 @@ export default function App() {
           {activeRoute === '/dashboard/custos' && (
             <CostsView
               products={products}
-              orders={filteredOrders}
+              orders={orders}
               settings={settings}
               privacyMode={privacyMode}
               onUpdateProductCost={handleUpdateProductCostWithRetroactive}
@@ -1538,6 +1643,7 @@ export default function App() {
               onDeleteProduct={handleDeleteProduct}
               onSaveOperationalCosts={handleSaveOperationalCosts}
               onRecalculateAllOperationalCosts={handleRecalculateAllOperationalCosts}
+              onSyncCartpandaProducts={handleSyncCartpandaProducts}
             />
           )}
 

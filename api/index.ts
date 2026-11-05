@@ -266,15 +266,14 @@ app.get('/api/health', (_req, res) => res.json({ ok: true }));
         return [];
       };
 
-      // Candidate endpoints to probe in order of priority
+      // Candidate endpoints to probe in order of priority (using store slug)
+      const resolvedSlug = slug || 'petcaju';
       const candidateEndpoints: string[] = [
+        `https://accounts.cartpanda.com/api/${encodeURIComponent(resolvedSlug)}/orders`,
         'https://accounts.cartpanda.com/api/v1/orders',
+        `https://${encodeURIComponent(resolvedSlug)}.mycartpanda.com/api/v1/orders`,
+        `https://${encodeURIComponent(resolvedSlug)}.cartpanda.com/api/v1/orders`,
       ];
-      if (slug) {
-        candidateEndpoints.push(`https://accounts.cartpanda.com/api/${encodeURIComponent(slug)}/orders`);
-        candidateEndpoints.push(`https://${encodeURIComponent(slug)}.mycartpanda.com/api/v1/orders`);
-        candidateEndpoints.push(`https://${encodeURIComponent(slug)}.cartpanda.com/api/v1/orders`);
-      }
 
       let workingEndpointUrl: string | null = null;
       const allRawOrders: Array<Record<string, any>> = [];
@@ -427,9 +426,80 @@ app.get('/api/health', (_req, res) => res.json({ ok: true }));
       const normalizedOrders: Array<Record<string, any>> = [];
       const discoveredProductsMap = new Map<
         string,
-        { id: string; title: string; sku: string; price: number; costPrice: number }
+        {
+          id: string;
+          shopifyId?: string;
+          title: string;
+          sku: string;
+          imageUrl: string;
+          price: number;
+          costPrice: number;
+          stockQuantity: number;
+          active: boolean;
+        }
       >();
       let ignoredTestCount = 0;
+
+      // 1. Fetch full product catalog directly from Cartpanda store
+      try {
+        const prodEndpoints = [
+          `https://accounts.cartpanda.com/api/${encodeURIComponent(resolvedSlug)}/products?page=1&limit=100`,
+          'https://accounts.cartpanda.com/api/v1/products?page=1&limit=100',
+        ];
+        for (const pUrl of prodEndpoints) {
+          try {
+            const pRes = await fetch(pUrl, {
+              headers: {
+                Authorization: `Bearer ${token}`,
+                Accept: 'application/json',
+              },
+            });
+            if (pRes.ok) {
+              const pJson: any = await pRes.json().catch(() => null);
+              const rawProds = extractArray(pJson, 'products', 'data');
+              for (const p of rawProds) {
+                const title = String(p.title || 'Produto').trim();
+                const sku = String(p.sku || p.handle || `prod_${p.id}`).trim();
+                if (title) {
+                  const rawPrice = Number(p.price || 0);
+                  const price = rawPrice > 100 ? Number((rawPrice / 100).toFixed(2)) : rawPrice;
+                  const rawCost = Number(p.cost_per_item || p.cost_price || 0);
+                  const costPrice = rawCost > 100 ? Number((rawCost / 100).toFixed(2)) : rawCost;
+
+                  let imageUrl = '';
+                  if (Array.isArray(p.images) && p.images.length > 0) {
+                    const firstImg = p.images[0];
+                    if (typeof firstImg === 'object' && firstImg !== null) {
+                      imageUrl = firstImg.url || firstImg.src || '';
+                    } else if (typeof firstImg === 'string') {
+                      imageUrl = firstImg;
+                    }
+                  } else if (typeof p.image === 'string') {
+                    imageUrl = p.image;
+                  }
+
+                  discoveredProductsMap.set(sku, {
+                    id: String(p.id || `prod_${sku}`),
+                    shopifyId: String(p.shopify_id || ''),
+                    title,
+                    sku,
+                    imageUrl,
+                    price,
+                    costPrice,
+                    stockQuantity: Number(p.quantity || 100),
+                    active: Boolean(p.active ?? true),
+                  });
+                }
+              }
+              if (rawProds.length > 0) break;
+            }
+          } catch {
+            // Try next candidate product endpoint
+          }
+        }
+      } catch (catErr) {
+        console.warn('Error fetching Cartpanda catalog products:', catErr);
+      }
 
       for (const raw of allRawOrders) {
         const phone = safeExtractPhone(raw);
@@ -525,12 +595,21 @@ app.get('/api/health', (_req, res) => res.json({ ok: true }));
           const title = String(it.title || it.name || 'Produto').trim();
           const sku = String(it.sku || title.toLowerCase().replace(/\s+/g, '-')).slice(0, 50);
           if (title && !discoveredProductsMap.has(sku)) {
+            const rawPrice = Number(it.price || grossAmount || 99.9);
+            const price = rawPrice > 100 ? Number((rawPrice / 100).toFixed(2)) : rawPrice;
+            const rawCost = Number(it.cost_price || 0);
+            const costPrice = rawCost > 100 ? Number((rawCost / 100).toFixed(2)) : rawCost;
+
             discoveredProductsMap.set(sku, {
               id: `prod_${sku}`,
+              shopifyId: String(it.product_id || it.variant_id || ''),
               title,
               sku,
-              price: Number(it.price || grossAmount || 99.9),
-              costPrice: Number(it.cost_price || 0),
+              imageUrl: String(it.image || it.image_url || ''),
+              price,
+              costPrice,
+              stockQuantity: 100,
+              active: true,
             });
           }
         }
@@ -648,6 +727,105 @@ app.get('/api/health', (_req, res) => res.json({ ok: true }));
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : 'Erro ao sincronizar Cartpanda';
       return res.status(400).json({ ok: false, error: message });
+    }
+  });
+
+  /**
+   * 2.1 Direct Products Endpoint (/api/cartpanda/products)
+   * Fetches full product catalog directly from Cartpanda store
+   */
+  app.post('/api/cartpanda/products', async (req, res) => {
+    try {
+      const {
+        cartpandaApiToken = '',
+        cartpandaStoreSlug = '',
+      } = req.body || {};
+
+      const token = String(cartpandaApiToken || '').trim();
+      const slug = cleanCartpandaSlug(cartpandaStoreSlug) || 'petcaju';
+
+      if (!token) {
+        return res.json({
+          ok: false,
+          products: [],
+          message: 'Token da Cartpanda não informado.',
+        });
+      }
+
+      const endpoints = [
+        `https://accounts.cartpanda.com/api/${encodeURIComponent(slug)}/products?page=1&limit=100`,
+        'https://accounts.cartpanda.com/api/v1/products?page=1&limit=100',
+      ];
+
+      const products: Array<any> = [];
+      let success = false;
+
+      for (const url of endpoints) {
+        try {
+          const resp = await fetch(url, {
+            headers: {
+              Authorization: `Bearer ${token}`,
+              Accept: 'application/json',
+            },
+          });
+          if (resp.ok) {
+            const data: any = await resp.json().catch(() => null);
+            let rawList: any[] = [];
+            if (Array.isArray(data)) rawList = data;
+            else if (Array.isArray(data?.products?.data)) rawList = data.products.data;
+            else if (Array.isArray(data?.products)) rawList = data.products;
+            else if (Array.isArray(data?.data)) rawList = data.data;
+
+            for (const p of rawList) {
+              const title = String(p.title || 'Produto').trim();
+              const sku = String(p.sku || p.handle || `prod_${p.id}`).trim();
+              if (title) {
+                const rawPrice = Number(p.price || 0);
+                const price = rawPrice > 100 ? Number((rawPrice / 100).toFixed(2)) : rawPrice;
+                const rawCost = Number(p.cost_per_item || p.cost_price || 0);
+                const costPrice = rawCost > 100 ? Number((rawCost / 100).toFixed(2)) : rawCost;
+
+                let imageUrl = '';
+                if (Array.isArray(p.images) && p.images.length > 0) {
+                  const firstImg = p.images[0];
+                  if (typeof firstImg === 'object' && firstImg !== null) {
+                    imageUrl = firstImg.url || firstImg.src || '';
+                  } else if (typeof firstImg === 'string') {
+                    imageUrl = firstImg;
+                  }
+                } else if (typeof p.image === 'string') {
+                  imageUrl = p.image;
+                }
+
+                products.push({
+                  id: String(p.id || `prod_${sku}`),
+                  shopifyId: String(p.shopify_id || ''),
+                  title,
+                  sku,
+                  imageUrl,
+                  price,
+                  costPrice,
+                  stockQuantity: Number(p.quantity || 100),
+                  active: Boolean(p.active ?? true),
+                });
+              }
+            }
+            success = true;
+            break;
+          }
+        } catch {
+          // Probe next
+        }
+      }
+
+      return res.json({
+        ok: success,
+        count: products.length,
+        products,
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Erro ao buscar produtos da Cartpanda';
+      return res.status(500).json({ ok: false, error: msg });
     }
   });
 

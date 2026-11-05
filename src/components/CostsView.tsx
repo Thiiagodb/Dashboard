@@ -55,6 +55,7 @@ interface CostsViewProps {
     defaultPackagingCost: number,
     orderExtraCosts: OrderExtraCost[]
   ) => Promise<void>;
+  onSyncCartpandaProducts?: () => Promise<void>;
 }
 
 export const CostsView: React.FC<CostsViewProps> = ({
@@ -67,9 +68,28 @@ export const CostsView: React.FC<CostsViewProps> = ({
   onDeleteProduct,
   onSaveOperationalCosts,
   onRecalculateAllOperationalCosts,
+  onSyncCartpandaProducts,
 }) => {
   const [activeTab, setActiveTab] = useState<'products' | 'operational'>('products');
   const [searchQuery, setSearchQuery] = useState('');
+  const [isSyncingProducts, setIsSyncingProducts] = useState(false);
+
+  // Auto-sync products on first view load if catalog is currently empty
+  React.useEffect(() => {
+    if (products.length === 0 && onSyncCartpandaProducts) {
+      onSyncCartpandaProducts();
+    }
+  }, [products.length, onSyncCartpandaProducts]);
+
+  const handleSyncStore = async () => {
+    if (!onSyncCartpandaProducts) return;
+    setIsSyncingProducts(true);
+    try {
+      await onSyncCartpandaProducts();
+    } finally {
+      setIsSyncingProducts(false);
+    }
+  };
 
   // Inline editing state for quick cost change in product table
   const [editingSku, setEditingSku] = useState<string | null>(null);
@@ -180,18 +200,12 @@ export const CostsView: React.FC<CostsViewProps> = ({
       }
     }
 
-    if (matchingOrdersCount > 0) {
-      setRetroactiveModal({
-        product,
-        newCost: parsedCost,
-        newPrice: parsedPrice,
-        matchingOrdersCount,
-      });
-    } else {
-      // No past orders matching, directly save without retroactive prompt
-      onUpdateProductCost(product, parsedCost, false, parsedPrice);
-      setEditingSku(null);
-    }
+    setRetroactiveModal({
+      product,
+      newCost: parsedCost,
+      newPrice: parsedPrice,
+      matchingOrdersCount,
+    });
   };
 
   // Confirm Retroactive or Future-only
@@ -416,15 +430,64 @@ export const CostsView: React.FC<CostsViewProps> = ({
               />
             </div>
 
-            <button
-              type="button"
-              onClick={() => setShowNewProductModal(true)}
-              className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors flex items-center justify-center gap-1.5 cursor-pointer shrink-0 shadow-sm"
-            >
-              <Plus className="w-4 h-4" />
-              <span>Cadastrar Novo Produto</span>
-            </button>
+            <div className="flex items-center gap-2">
+              {onSyncCartpandaProducts && (
+                <button
+                  type="button"
+                  onClick={handleSyncStore}
+                  disabled={isSyncingProducts}
+                  className="px-3 py-2 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-slate-200 border border-slate-700 transition-colors flex items-center justify-center gap-1.5 cursor-pointer shrink-0"
+                  title="Buscar todos os 16 produtos cadastrados na Cartpanda"
+                >
+                  <RefreshCw
+                    className={`w-3.5 h-3.5 text-emerald-400 ${
+                      isSyncingProducts ? 'animate-spin' : ''
+                    }`}
+                  />
+                  <span>Sincronizar da Loja</span>
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => setShowNewProductModal(true)}
+                className="px-3.5 py-2 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white transition-colors flex items-center justify-center gap-1.5 cursor-pointer shrink-0 shadow-sm"
+              >
+                <Plus className="w-4 h-4" />
+                <span>+ Novo Produto</span>
+              </button>
+            </div>
           </div>
+
+          {/* Empty State Banner if no products found */}
+          {filteredProducts.length === 0 && (
+            <div className="p-8 text-center bg-[#111827] border border-slate-800/90 rounded-2xl space-y-3">
+              <div className="p-3 bg-emerald-500/10 text-emerald-400 rounded-2xl w-fit mx-auto">
+                <Boxes className="w-8 h-8" />
+              </div>
+              <div className="max-w-md mx-auto space-y-1">
+                <h3 className="text-base font-bold text-slate-100">
+                  Nenhum produto listado no catálogo
+                </h3>
+                <p className="text-xs text-slate-400">
+                  Clique no botão abaixo para puxar todos os 16 produtos da sua loja Cartpanda e definir o CMV pago em cada um.
+                </p>
+              </div>
+              {onSyncCartpandaProducts && (
+                <button
+                  type="button"
+                  onClick={handleSyncStore}
+                  disabled={isSyncingProducts}
+                  className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white text-xs font-semibold inline-flex items-center gap-2 cursor-pointer shadow-sm shadow-emerald-950/40"
+                >
+                  <RefreshCw
+                    className={`w-4 h-4 ${isSyncingProducts ? 'animate-spin' : ''}`}
+                  />
+                  <span>Puxar Todos os Produtos da Cartpanda Agora</span>
+                </button>
+              )}
+            </div>
+          )}
 
           {/* Products Table (Desktop) */}
           <div className="hidden md:block bg-[#111827] border border-slate-800/90 rounded-xl overflow-hidden shadow-sm">

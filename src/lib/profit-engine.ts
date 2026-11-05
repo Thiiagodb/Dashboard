@@ -144,7 +144,7 @@ export const DEFAULT_SETTINGS: Omit<SettingsRecord, 'id' | 'ownerId'> = {
   metaAdAccountId: '',
   lastSyncAt: '',
   cartpandaApiToken: '',
-  cartpandaStoreSlug: '',
+  cartpandaStoreSlug: 'petcaju',
   lastCartpandaSyncAt: '',
   blockedTestPhones: '(41) 99582-4010, 41995824010, (11) 99999-9999',
   dashboardPassword: 'thiagodj97',
@@ -896,10 +896,17 @@ export function matchOrderToProduct(
   const title = (product.title || '').trim().toLowerCase();
 
   let matches = false;
-  if (sku && summary.includes(sku)) {
+  if (sku && sku.length >= 3 && summary.includes(sku)) {
     matches = true;
-  } else if (title && title.length >= 3 && summary.includes(title)) {
-    matches = true;
+  } else if (title && title.length >= 3) {
+    if (summary.includes(title)) {
+      matches = true;
+    } else {
+      const titleWords = title.split(/\s+/).filter((w) => w.length >= 4);
+      if (titleWords.length >= 2 && titleWords.every((w) => summary.includes(w))) {
+        matches = true;
+      }
+    }
   }
 
   if (!matches) {
@@ -911,6 +918,67 @@ export function matchOrderToProduct(
   const quantity = qtyMatch ? parseInt(qtyMatch[1], 10) || 1 : 1;
 
   return { matches: true, quantity };
+}
+
+/**
+ * Automatically extracts and reconciles unique products from existing orders,
+ * guaranteeing that every item ever sold in the store appears in the product catalog.
+ */
+export function extractProductsFromOrders(
+  orders: OrderRecord[],
+  existingProducts: ProductRecord[]
+): ProductRecord[] {
+  const bySkuOrTitle = new Map<string, ProductRecord>();
+
+  // Index existing products first
+  for (const p of existingProducts) {
+    if (p.sku) bySkuOrTitle.set(p.sku.toLowerCase(), p);
+    if (p.title) bySkuOrTitle.set(p.title.toLowerCase().trim(), p);
+  }
+
+  const result: ProductRecord[] = [...existingProducts];
+
+  for (const ord of orders) {
+    const rawSummary = String(ord.itemsSummary || '').trim();
+    if (!rawSummary) continue;
+
+    // Split on comma or semicolon in case of multiple items: "1x Produto A, 2x Produto B"
+    const parts = rawSummary.split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean);
+    for (const part of parts) {
+      // Strip leading quantity like "1x ", "2 x "
+      const cleanTitle = part.replace(/^(\d+)\s*[xX]\s*/, '').trim();
+      if (!cleanTitle || cleanTitle.length < 2) continue;
+
+      const key = cleanTitle.toLowerCase();
+      if (!bySkuOrTitle.has(key)) {
+        const generatedSku = cleanTitle
+          .toLowerCase()
+          .normalize('NFD')
+          .replace(/[\u0300-\u036f]/g, '')
+          .replace(/[^a-z0-9]+/g, '-')
+          .slice(0, 40);
+
+        const newProd: ProductRecord = {
+          id: `prod_auto_${generatedSku || Date.now()}`,
+          ownerId: ord.ownerId || 'local_merchant',
+          shopifyId: '',
+          title: cleanTitle,
+          sku: generatedSku.toUpperCase() || `SKU-${Date.now()}`,
+          imageUrl: '',
+          price: Number((ord.grossAmount || 99.9).toFixed(2)),
+          costPrice: Number(ord.cogsAmount || 0),
+          stockQuantity: 100,
+          active: true,
+        };
+
+        bySkuOrTitle.set(key, newProd);
+        bySkuOrTitle.set(newProd.sku.toLowerCase(), newProd);
+        result.push(newProd);
+      }
+    }
+  }
+
+  return result;
 }
 
 /**
