@@ -44,6 +44,7 @@ interface DashboardViewProps {
   onUpdateProductCost: (product: ProductRecord, newCost: number) => Promise<void>;
   onNavigateOrders: () => void;
   onNavigateSettings?: () => void;
+  onNavigateCosts?: () => void;
   onSyncAll?: () => Promise<void>;
 }
 
@@ -55,6 +56,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   onUpdateProductCost,
   onNavigateOrders,
   onNavigateSettings,
+  onNavigateCosts,
   onSyncAll,
 }) => {
   const [editingSku, setEditingSku] = useState<string | null>(null);
@@ -134,7 +136,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         lucro: 0,
       };
       const opCost =
-        ord.cogsAmount + ord.taxAmount + ord.shippingCost + ord.checkoutFee;
+        ord.cogsAmount +
+        ord.taxAmount +
+        ord.shippingCost +
+        ord.checkoutFee +
+        (ord.packagingCost ?? 0) +
+        (ord.extraCosts ?? 0);
       curr.receita = Number((curr.receita + ord.grossAmount).toFixed(2));
       curr.custosOp = Number((curr.custosOp + opCost).toFixed(2));
       curr.lucro = Number((curr.lucro + ord.netProfit).toFixed(2));
@@ -759,9 +766,21 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               Rentabilidade real por SKU descontando CMV unitário e taxas médias de checkout
             </p>
           </div>
-          <span className="text-[10px] sm:text-xs text-slate-400">
-            Ajuste o CMV unitário com o ícone de lápis em tempo real
-          </span>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] sm:text-xs text-slate-400 hidden sm:inline">
+              Ajuste o CMV com o lápis ou
+            </span>
+            {onNavigateCosts && (
+              <button
+                type="button"
+                onClick={onNavigateCosts}
+                className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-600/20 hover:bg-emerald-600/30 text-emerald-300 border border-emerald-500/40 transition-colors flex items-center gap-1 cursor-pointer"
+              >
+                <span>Área de Custos & CMV</span>
+                <ArrowUpRight className="w-3.5 h-3.5" />
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Mobile Cards View (< 768px) */}

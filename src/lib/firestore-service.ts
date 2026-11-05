@@ -98,6 +98,13 @@ export async function loadOrSeedStoreData(uid: string): Promise<{
       cartpandaCardFeePercent: Number(settingsData.cartpandaCardFeePercent ?? 4.99),
       cartpandaCardFeeFixed: Number(settingsData.cartpandaCardFeeFixed ?? 1.0),
       cartpandaBilletFeeFixed: Number(settingsData.cartpandaBilletFeeFixed ?? 3.49),
+      defaultPackagingCost: Number(settingsData.defaultPackagingCost ?? 3.50),
+      orderExtraCosts: Array.isArray(settingsData.orderExtraCosts)
+        ? settingsData.orderExtraCosts
+        : [
+            { id: 'extra_1', name: 'Brinde / Adesivo', amount: 1.00, active: true },
+            { id: 'extra_2', name: 'Fita e Etiqueta', amount: 0.50, active: true },
+          ],
       metaAccessToken: settingsData.metaAccessToken || '',
       metaAdAccountId: settingsData.metaAdAccountId || '',
       lastSyncAt: settingsData.lastSyncAt || '',
@@ -155,6 +162,9 @@ export async function loadOrSeedStoreData(uid: string): Promise<{
         shippingCost: Number(data.shippingCost),
         taxAmount: Number(data.taxAmount),
         cogsAmount: Number(data.cogsAmount),
+        packagingCost: data.packagingCost !== undefined ? Number(data.packagingCost) : undefined,
+        extraCosts: data.extraCosts !== undefined ? Number(data.extraCosts) : undefined,
+        hasCustomCosts: Boolean(data.hasCustomCosts),
         netProfit: Number(data.netProfit),
         profitMargin: Number(data.profitMargin),
         utmSource: data.utmSource,
@@ -273,10 +283,18 @@ export async function updateOrderInFirestore(
     if (updates.paymentMethod !== undefined) cleanUpdates.paymentMethod = updates.paymentMethod;
     if (updates.checkoutFee !== undefined) cleanUpdates.checkoutFee = Number(updates.checkoutFee);
     if (updates.gatewayFee !== undefined) cleanUpdates.gatewayFee = Number(updates.gatewayFee);
+    if (updates.grossAmount !== undefined) cleanUpdates.grossAmount = Number(updates.grossAmount);
+    if (updates.shippingCost !== undefined) cleanUpdates.shippingCost = Number(updates.shippingCost);
+    if (updates.taxAmount !== undefined) cleanUpdates.taxAmount = Number(updates.taxAmount);
+    if (updates.cogsAmount !== undefined) cleanUpdates.cogsAmount = Number(updates.cogsAmount);
+    if (updates.packagingCost !== undefined) cleanUpdates.packagingCost = Number(updates.packagingCost);
+    if (updates.extraCosts !== undefined) cleanUpdates.extraCosts = Number(updates.extraCosts);
+    if (updates.hasCustomCosts !== undefined) cleanUpdates.hasCustomCosts = Boolean(updates.hasCustomCosts);
     if (updates.netAmount !== undefined) cleanUpdates.netAmount = Number(updates.netAmount);
     if (updates.netProfit !== undefined) cleanUpdates.netProfit = Number(updates.netProfit);
     if (updates.profitMargin !== undefined) cleanUpdates.profitMargin = Number(updates.profitMargin);
     if (updates.installments !== undefined) cleanUpdates.installments = Number(updates.installments);
+    if (updates.itemsSummary !== undefined) cleanUpdates.itemsSummary = String(updates.itemsSummary);
 
     await updateDoc(doc(db, 'orders', orderId), cleanUpdates);
   } catch (error) {
@@ -313,6 +331,13 @@ export async function saveSettingsInFirestore(
       cartpandaCardFeePercent: safeNum(settings.cartpandaCardFeePercent, 4.99),
       cartpandaCardFeeFixed: safeNum(settings.cartpandaCardFeeFixed, 1.0),
       cartpandaBilletFeeFixed: safeNum(settings.cartpandaBilletFeeFixed, 3.49),
+      defaultPackagingCost: safeNum(settings.defaultPackagingCost, 3.50),
+      orderExtraCosts: Array.isArray(settings.orderExtraCosts)
+        ? settings.orderExtraCosts
+        : [
+            { id: 'extra_1', name: 'Brinde / Adesivo', amount: 1.00, active: true },
+            { id: 'extra_2', name: 'Fita e Etiqueta', amount: 0.50, active: true },
+          ],
       metaAccessToken: safeStr(settings.metaAccessToken, 500, ''),
       metaAdAccountId: safeStr(settings.metaAdAccountId, 120, ''),
       lastSyncAt: safeStr(settings.lastSyncAt, 40, ''),
@@ -447,6 +472,9 @@ export async function persistSyncedOrders(
         shippingCost: safeNum(ord.shippingCost, 0),
         taxAmount: safeNum(ord.taxAmount, 0),
         cogsAmount: safeNum(ord.cogsAmount, 0),
+        packagingCost: ord.packagingCost !== undefined ? safeNum(ord.packagingCost, 0) : null,
+        extraCosts: ord.extraCosts !== undefined ? safeNum(ord.extraCosts, 0) : null,
+        hasCustomCosts: Boolean(ord.hasCustomCosts),
         netProfit: safeFloat(ord.netProfit),
         profitMargin: safeFloat(ord.profitMargin),
         utmSource: String(ord.utmSource || '').slice(0, 120),
@@ -533,5 +561,48 @@ export async function updateProductCostInFirestore(
     });
   } catch (error) {
     handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function saveProductInFirestore(
+  uid: string,
+  product: ProductRecord
+): Promise<ProductRecord> {
+  const docId = product.id || sanitizeId(`prod_${uid.slice(0, 6)}_${product.sku || Date.now()}`);
+  const path = `products/${docId}`;
+  try {
+    const prodRef = doc(db, 'products', docId);
+    const existingSnap = await getDoc(prodRef).catch(() => null);
+    const payload = {
+      ownerId: uid,
+      shopifyId: product.shopifyId || '',
+      title: product.title.slice(0, 200),
+      sku: product.sku.slice(0, 80),
+      imageUrl: product.imageUrl.slice(0, 500),
+      price: Math.max(0, Number(product.price) || 0),
+      costPrice: Math.max(0, Number(product.costPrice) || 0),
+      stockQuantity: Number(product.stockQuantity) || 0,
+      active: Boolean(product.active),
+      createdAt: existingSnap?.exists() ? existingSnap.data()?.createdAt : serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    };
+    if (existingSnap?.exists()) {
+      await updateDoc(prodRef, payload);
+    } else {
+      await setDoc(prodRef, payload);
+    }
+    return { ...product, id: docId, ownerId: uid };
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+    return product;
+  }
+}
+
+export async function deleteProductInFirestore(productId: string): Promise<void> {
+  const path = `products/${productId}`;
+  try {
+    await deleteDoc(doc(db, 'products', productId));
+  } catch (error) {
+    handleFirestoreError(error, OperationType.DELETE, path);
   }
 }

@@ -1,36 +1,55 @@
 import React, { useMemo, useState } from 'react';
 import {
+  AlertCircle,
+  Archive,
   CheckCircle2,
   Clock,
   CreditCard,
+  Edit2,
+  Edit3,
   FileText,
   Filter,
   HelpCircle,
+  Package,
   QrCode,
   RefreshCw,
   Search,
   ShieldCheck,
+  Sliders,
   Sparkles,
   Trash2,
   TrendingUp,
   User as UserIcon,
+  X,
 } from 'lucide-react';
 import {
+  calculateOrderFinancials,
   formatSaoPauloDateTime,
   isPaidOrderStatus,
   OrderRecord,
   OrderStatus,
   PaymentMethod,
+  SettingsRecord,
 } from '../lib/profit-engine.ts';
 import { formatBRL, formatPercent } from './Formatters.tsx';
 
 interface OrdersViewProps {
   orders: OrderRecord[];
+  settings?: SettingsRecord;
   privacyMode: boolean;
   isSyncingCartpanda: boolean;
   onSyncCartpanda: () => Promise<void>;
   onUpdateOrderStatus: (orderId: string, newStatus: OrderStatus) => Promise<void>;
   onUpdateOrderPaymentMethod?: (orderId: string, newMethod: PaymentMethod) => Promise<void>;
+  onUpdateOrderCosts?: (
+    orderId: string,
+    newCosts: {
+      cogsAmount: number;
+      packagingCost?: number;
+      extraCosts?: number;
+      shippingCost?: number;
+    }
+  ) => Promise<void>;
   onBulkReclassifyOrders?: () => Promise<void>;
   onDeleteOrder: (orderId: string) => Promise<void>;
   onPurgeTestOrders: () => Promise<void>;
@@ -97,11 +116,13 @@ const STATUS_FILTER_TABS: Array<{ id: string; label: string }> = [
 
 export const OrdersView: React.FC<OrdersViewProps> = ({
   orders,
+  settings,
   privacyMode,
   isSyncingCartpanda,
   onSyncCartpanda,
   onUpdateOrderStatus,
   onUpdateOrderPaymentMethod,
+  onUpdateOrderCosts,
   onBulkReclassifyOrders,
   onDeleteOrder,
   onPurgeTestOrders,
@@ -109,6 +130,71 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
   const [activeStatusTab, setActiveStatusTab] = useState<string>('all');
   const [activePaymentFilter, setActivePaymentFilter] = useState<'all' | PaymentMethod>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Isolated Order Cost Editor Modal
+  const [costModalOrder, setCostModalOrder] = useState<OrderRecord | null>(null);
+  const [modalCogs, setModalCogs] = useState<string>('');
+  const [modalPackaging, setModalPackaging] = useState<string>('');
+  const [modalExtra, setModalExtra] = useState<string>('');
+  const [modalShipping, setModalShipping] = useState<string>('');
+  const [isSavingModalCosts, setIsSavingModalCosts] = useState<boolean>(false);
+
+  const openCostModal = (ord: OrderRecord) => {
+    setCostModalOrder(ord);
+    setModalCogs(String(ord.cogsAmount ?? 0));
+    setModalPackaging(
+      String(ord.packagingCost ?? settings?.defaultPackagingCost ?? 3.5)
+    );
+    const defaultExtra = Array.isArray(settings?.orderExtraCosts)
+      ? settings.orderExtraCosts
+          .filter((c) => c.active)
+          .reduce((sum, c) => sum + (Number(c.amount) || 0), 0)
+      : 0;
+    setModalExtra(String(ord.extraCosts ?? defaultExtra));
+    setModalShipping(String(ord.shippingCost ?? 0));
+  };
+
+  const handleSaveModalCosts = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!costModalOrder || !onUpdateOrderCosts) return;
+
+    const parsedCogs = Math.max(0, parseFloat(modalCogs.replace(',', '.')) || 0);
+    const parsedPackaging = Math.max(0, parseFloat(modalPackaging.replace(',', '.')) || 0);
+    const parsedExtra = Math.max(0, parseFloat(modalExtra.replace(',', '.')) || 0);
+    const parsedShipping = Math.max(0, parseFloat(modalShipping.replace(',', '.')) || 0);
+
+    setIsSavingModalCosts(true);
+    try {
+      await onUpdateOrderCosts(costModalOrder.id, {
+        cogsAmount: parsedCogs,
+        packagingCost: parsedPackaging,
+        extraCosts: parsedExtra,
+        shippingCost: parsedShipping,
+      });
+      setCostModalOrder(null);
+    } finally {
+      setIsSavingModalCosts(false);
+    }
+  };
+
+  // Live calculation for preview inside cost editor modal
+  const modalLiveCalculation = useMemo(() => {
+    if (!costModalOrder || !settings) return null;
+    const parsedCogs = Math.max(0, parseFloat(modalCogs.replace(',', '.')) || 0);
+    const parsedPackaging = Math.max(0, parseFloat(modalPackaging.replace(',', '.')) || 0);
+    const parsedExtra = Math.max(0, parseFloat(modalExtra.replace(',', '.')) || 0);
+    const parsedShipping = Math.max(0, parseFloat(modalShipping.replace(',', '.')) || 0);
+
+    return calculateOrderFinancials({
+      grossAmount: costModalOrder.grossAmount,
+      shippingCost: parsedShipping,
+      cogsAmount: parsedCogs,
+      packagingCost: parsedPackaging,
+      extraCosts: parsedExtra,
+      paymentMethod: costModalOrder.paymentMethod,
+      settings,
+    });
+  }, [costModalOrder, settings, modalCogs, modalPackaging, modalExtra, modalShipping]);
 
   // 1. Calculate Payment Method Breakdown Metrics (Cards Strip)
   const paymentMethodMetrics = useMemo(() => {
@@ -655,9 +741,16 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                     </div>
 
                     <div className="p-2 bg-slate-900/40 rounded-lg">
-                      <span className="block text-[10px] text-slate-400 font-sans">Taxa Checkout</span>
-                      <span className="text-rose-400">
-                        -{formatBRL(ord.checkoutFee, privacyMode)}
+                      <div className="flex items-center justify-between">
+                        <span className="text-[10px] text-slate-400 font-sans">CMV Produtos</span>
+                        {ord.hasCustomCosts && (
+                          <span className="text-[9px] px-1 rounded bg-amber-500/20 text-amber-300">
+                            Ajustado
+                          </span>
+                        )}
+                      </div>
+                      <span className="text-amber-300">
+                        {formatBRL(ord.cogsAmount, privacyMode)}
                       </span>
                     </div>
 
@@ -675,6 +768,20 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
                       </span>
                     </div>
                   </div>
+
+                  {/* Mobile Button: Ajustar Custos do Pedido Isolado */}
+                  {onUpdateOrderCosts && (
+                    <div className="pt-1 flex items-center justify-between">
+                      <button
+                        type="button"
+                        onClick={() => openCostModal(ord)}
+                        className="w-full py-1.5 px-3 rounded-lg bg-slate-900 hover:bg-slate-800 border border-slate-800 text-slate-300 text-xs font-medium flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                      >
+                        <Sliders className="w-3.5 h-3.5 text-emerald-400" />
+                        <span>Ajustar Custos deste Pedido</span>
+                      </button>
+                    </div>
+                  )}
                 </div>
               );
             })}
@@ -852,7 +959,24 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
 
                         {/* CMV Unitário */}
                         <td className="py-3 px-3 text-right font-mono tabular-nums text-slate-300 whitespace-nowrap">
-                          {formatBRL(ord.cogsAmount, privacyMode)}
+                          <div className="flex items-center justify-end gap-1.5">
+                            <span>{formatBRL(ord.cogsAmount, privacyMode)}</span>
+                            {onUpdateOrderCosts && (
+                              <button
+                                type="button"
+                                onClick={() => openCostModal(ord)}
+                                className="p-1 text-slate-400 hover:text-emerald-400 rounded hover:bg-slate-800 transition-colors cursor-pointer"
+                                title="Ajustar CMV e custos deste pedido isolado"
+                              >
+                                <Edit3 className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                          </div>
+                          {ord.hasCustomCosts && (
+                            <span className="inline-block text-[9px] font-mono px-1 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                              CMV Ajustado
+                            </span>
+                          )}
                         </td>
 
                         {/* Lucro Líquido Real */}
@@ -871,14 +995,26 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
 
                         {/* Ação */}
                         <td className="py-3 px-3 text-center whitespace-nowrap">
-                          <button
-                            type="button"
-                            onClick={() => onDeleteOrder(ord.id)}
-                            className="p-1.5 text-slate-400 hover:text-rose-400 rounded-md hover:bg-slate-800 transition-colors cursor-pointer"
-                            title="Remover pedido da listagem"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="inline-flex items-center gap-1">
+                            {onUpdateOrderCosts && (
+                              <button
+                                type="button"
+                                onClick={() => openCostModal(ord)}
+                                className="p-1.5 text-slate-400 hover:text-emerald-400 rounded-md hover:bg-slate-800 transition-colors cursor-pointer"
+                                title="Ajustar custos do pedido (CMV, frete, embalagem)"
+                              >
+                                <Sliders className="w-3.5 h-3.5" />
+                              </button>
+                            )}
+                            <button
+                              type="button"
+                              onClick={() => onDeleteOrder(ord.id)}
+                              className="p-1.5 text-slate-400 hover:text-rose-400 rounded-md hover:bg-slate-800 transition-colors cursor-pointer"
+                              title="Remover pedido da listagem"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -924,6 +1060,200 @@ export const OrdersView: React.FC<OrdersViewProps> = ({
             </div>
           </div>
         </>
+      )}
+
+      {/* ================= ISOLATED ORDER COST EDITOR MODAL ================= */}
+      {costModalOrder && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/80 backdrop-blur-sm animate-fade-in">
+          <div className="w-full max-w-lg bg-[#111827] border border-slate-700 rounded-2xl p-5 sm:p-6 shadow-2xl space-y-4">
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-lg bg-emerald-500/15 text-emerald-400">
+                  <Sliders className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-slate-100">
+                    Ajustar Custos do Pedido {costModalOrder.orderNumber}
+                  </h3>
+                  <span className="text-[11px] text-slate-400 font-mono">
+                    {formatSaoPauloDateTime(costModalOrder.orderDate)} · {getCustomerDisplayName(costModalOrder)}
+                  </span>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setCostModalOrder(null)}
+                className="p-1 text-slate-400 hover:text-slate-100 rounded-lg hover:bg-slate-800 cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Order Items Info */}
+            <div className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 text-xs text-slate-300">
+              <span className="text-[10px] text-slate-400 font-semibold uppercase tracking-wider block">
+                Itens do Pedido:
+              </span>
+              <span className="font-medium text-slate-200">
+                {costModalOrder.itemsSummary || '1x Produto'}
+              </span>
+            </div>
+
+            <form onSubmit={handleSaveModalCosts} className="space-y-4 text-xs">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* 1. CMV Unitário do Pedido */}
+                <div className="space-y-1">
+                  <label className="block font-semibold text-slate-200">
+                    CMV / Custo dos Produtos (R$)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.01"
+                    required
+                    value={modalCogs}
+                    onChange={(e) => setModalCogs(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg font-mono font-semibold text-amber-300 focus:outline-none focus:border-emerald-500"
+                    placeholder="0.00"
+                  />
+                  <span className="text-[10px] text-slate-400 block leading-tight">
+                    Preço de custo pago pelos produtos neste pedido específico.
+                  </span>
+                </div>
+
+                {/* 2. Custo de Embalagem */}
+                <div className="space-y-1">
+                  <label className="block font-semibold text-slate-200">
+                    Custo de Embalagem (R$)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.05"
+                    value={modalPackaging}
+                    onChange={(e) => setModalPackaging(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg font-mono text-slate-100 focus:outline-none focus:border-emerald-500"
+                    placeholder="3.50"
+                  />
+                  <span className="text-[10px] text-slate-400 block leading-tight">
+                    Caixa, envelope ou embalagem deste envio.
+                  </span>
+                </div>
+
+                {/* 3. Insumos Extras */}
+                <div className="space-y-1">
+                  <label className="block font-semibold text-slate-200">
+                    Insumos Extras / Brindes (R$)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.05"
+                    value={modalExtra}
+                    onChange={(e) => setModalExtra(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg font-mono text-slate-100 focus:outline-none focus:border-emerald-500"
+                    placeholder="1.50"
+                  />
+                  <span className="text-[10px] text-slate-400 block leading-tight">
+                    Brindes, adesivos ou taxas extras deste envio.
+                  </span>
+                </div>
+
+                {/* 4. Frete Real Pago */}
+                <div className="space-y-1">
+                  <label className="block font-semibold text-slate-200">
+                    Frete Real Pago (R$)
+                  </label>
+                  <input
+                    type="number"
+                    step="0.05"
+                    value={modalShipping}
+                    onChange={(e) => setModalShipping(e.target.value)}
+                    className="w-full px-3 py-2 bg-slate-900 border border-slate-700 rounded-lg font-mono text-slate-100 focus:outline-none focus:border-emerald-500"
+                    placeholder="0.00"
+                  />
+                  <span className="text-[10px] text-slate-400 block leading-tight">
+                    Custo real cobrado pelos Correios/transportadora.
+                  </span>
+                </div>
+              </div>
+
+              {/* Live Preview Box of Recalculated Profit */}
+              {modalLiveCalculation && (
+                <div className="p-3.5 rounded-xl bg-slate-900/90 border border-emerald-500/30 space-y-2">
+                  <span className="text-[10px] font-semibold text-emerald-400 uppercase tracking-wider block">
+                    Simulação em Tempo Real do Pedido:
+                  </span>
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 font-mono text-[11px]">
+                    <div className="p-1.5 rounded bg-slate-950/80">
+                      <span className="text-slate-400 block text-[9px]">Valor Bruto</span>
+                      <span className="font-semibold text-slate-100">
+                        {formatBRL(modalLiveCalculation.grossAmount, privacyMode)}
+                      </span>
+                    </div>
+
+                    <div className="p-1.5 rounded bg-slate-950/80">
+                      <span className="text-slate-400 block text-[9px]">Taxa Checkout</span>
+                      <span className="text-rose-400">
+                        -{formatBRL(modalLiveCalculation.checkoutFee, privacyMode)}
+                      </span>
+                    </div>
+
+                    <div className="p-1.5 rounded bg-slate-950/80">
+                      <span className="text-slate-400 block text-[9px]">Custos Totais</span>
+                      <span className="text-amber-300">
+                        -{formatBRL(
+                          modalLiveCalculation.cogsAmount +
+                            modalLiveCalculation.packagingCost +
+                            modalLiveCalculation.extraCosts +
+                            modalLiveCalculation.shippingCost +
+                            modalLiveCalculation.taxAmount,
+                          privacyMode
+                        )}
+                      </span>
+                    </div>
+
+                    <div className="p-1.5 rounded bg-emerald-950/40 border border-emerald-500/40">
+                      <span className="text-emerald-300 block text-[9px]">Novo Lucro</span>
+                      <span
+                        className={`font-bold ${
+                          modalLiveCalculation.netProfit >= 0
+                            ? 'text-emerald-300'
+                            : 'text-rose-400'
+                        }`}
+                      >
+                        {formatBRL(modalLiveCalculation.netProfit, privacyMode)}{' '}
+                        <span className="text-[9px] font-normal text-slate-400">
+                          ({formatPercent(modalLiveCalculation.profitMargin, privacyMode)})
+                        </span>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex items-center justify-end gap-2 pt-2 border-t border-slate-800">
+                <button
+                  type="button"
+                  onClick={() => setCostModalOrder(null)}
+                  className="px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingModalCosts}
+                  className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white font-semibold transition-colors flex items-center gap-1.5 cursor-pointer shadow-sm"
+                >
+                  {isSavingModalCosts ? (
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Check className="w-3.5 h-3.5" />
+                  )}
+                  <span>Salvar e Recalcular Pedido</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
     </div>
   );

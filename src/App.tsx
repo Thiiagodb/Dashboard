@@ -8,6 +8,7 @@ import {
 import toast, { Toaster } from 'react-hot-toast';
 import {
   BarChart3,
+  Boxes,
   Calculator,
   Calendar,
   Cloud,
@@ -18,10 +19,12 @@ import {
   Lock,
   LogIn,
   LogOut,
+  Package,
   RefreshCw,
   Settings as SettingsIcon,
   ShoppingBag,
   Smartphone,
+  Tag,
   X,
 } from 'lucide-react';
 import { auth, googleProvider } from './lib/firebase.ts';
@@ -29,10 +32,12 @@ import {
   addCustomExpenseInFirestore,
   deleteCustomExpenseInFirestore,
   deleteOrderFromFirestore,
+  deleteProductInFirestore,
   loadOrSeedStoreData,
   persistSyncedAdSpends,
   persistSyncedOrders,
   purgeOrdersFromFirestore,
+  saveProductInFirestore,
   saveSettingsInFirestore,
   updateOrderStatusInFirestore,
   updateOrderInFirestore,
@@ -45,17 +50,21 @@ import {
   DatePeriodFilter,
   isDateInPeriod,
   isTestOrDemoOrderRecord,
+  OrderExtraCost,
   OrderRecord,
   OrderStatus,
   PaymentMethod,
   parseOrdersCsv,
   ProductRecord,
+  recalculateOrdersWithProductCost,
   SettingsRecord,
   toSaoPauloDateKey,
+  updateIsolatedOrderCosts,
 } from './lib/profit-engine.ts';
 import { buildInitialSeedData } from './lib/seed-data.ts';
 import { DashboardView } from './components/DashboardView.tsx';
 import { OrdersView } from './components/OrdersView.tsx';
+import { CostsView } from './components/CostsView.tsx';
 import { DreView } from './components/DreView.tsx';
 import { AdsView } from './components/AdsView.tsx';
 import { SettingsView } from './components/SettingsView.tsx';
@@ -64,6 +73,7 @@ import { LockScreen } from './components/LockScreen.tsx';
 type ActiveRoute =
   | '/dashboard'
   | '/dashboard/pedidos'
+  | '/dashboard/custos'
   | '/dashboard/dre'
   | '/dashboard/ads'
   | '/dashboard/configuracoes';
@@ -85,6 +95,12 @@ const NAV_ITEMS: Array<{
     label: 'Relatório de Pedidos',
     shortLabel: 'Pedidos',
     icon: ShoppingBag,
+  },
+  {
+    route: '/dashboard/custos',
+    label: 'Custos & Insumos',
+    shortLabel: 'Custos',
+    icon: Boxes,
   },
   {
     route: '/dashboard/dre',
@@ -895,18 +911,168 @@ export default function App() {
     }
   };
 
-  // Update Product CMV Unit Cost
+  // Update Product CMV Unit Cost (with retroactive choice)
+  const handleUpdateProductCostWithRetroactive = async (
+    product: ProductRecord,
+    newCost: number,
+    applyRetroactive: boolean,
+    newPrice?: number
+  ) => {
+    const updatedProducts = products.map((p) =>
+      p.id === product.id
+        ? {
+            ...p,
+            costPrice: newCost,
+            price: newPrice !== undefined ? newPrice : p.price,
+          }
+        : p
+    );
+    setProducts(updatedProducts);
+
+    if (user) {
+      await updateProductCostInFirestore(product, newCost, newPrice);
+    }
+
+    if (applyRetroactive) {
+      const { updatedOrders, affectedCount } = recalculateOrdersWithProductCost(
+        orders,
+        product,
+        newCost,
+        settings
+      );
+      setOrders(updatedOrders);
+      if (user) {
+        await persistSyncedOrders(user.uid, updatedOrders);
+      }
+      toast.success(
+        `CMV atualizado para R$ ${newCost.toFixed(2)} e ${affectedCount} pedido(s) anteriores recalculados!`
+      );
+    } else {
+      toast.success(
+        `CMV de "${product.title}" atualizado para R$ ${newCost.toFixed(2)} (mantido para pedidos futuros).`
+      );
+    }
+  };
+
+  // Add or Edit Product in Catalog
+  const handleSaveProduct = async (product: ProductRecord) => {
+    setProducts((prev) => {
+      const exists = prev.some((p) => p.id === product.id || p.sku === product.sku);
+      if (exists) {
+        return prev.map((p) => (p.id === product.id || p.sku === product.sku ? product : p));
+      }
+      return [...prev, product];
+    });
+    if (user) {
+      await saveProductInFirestore(user.uid, product);
+    }
+    toast.success(`Produto "${product.title}" salvo com sucesso!`);
+  };
+
+  // Delete Product from Catalog
+  const handleDeleteProduct = async (productId: string) => {
+    setProducts((prev) => prev.filter((p) => p.id !== productId));
+    if (user) {
+      await deleteProductInFirestore(productId);
+    }
+    toast.success('Produto removido do catálogo.');
+  };
+
+  // Update Isolated Order Costs (CMV, packaging, extra, shipping)
+  const handleUpdateOrderCosts = async (
+    orderId: string,
+    newCosts: {
+      cogsAmount: number;
+      packagingCost?: number;
+      extraCosts?: number;
+      shippingCost?: number;
+    }
+  ) => {
+    let updatedOrder: OrderRecord | null = null;
+    setOrders((prev) =>
+      prev.map((ord) => {
+        if (ord.id !== orderId) return ord;
+        updatedOrder = updateIsolatedOrderCosts(ord, newCosts, settings);
+        return updatedOrder;
+      })
+    );
+
+    if (updatedOrder && user) {
+      await updateOrderInFirestore(orderId, updatedOrder);
+    }
+    toast.success('Custos do pedido ajustados e lucro líquido recalculado!');
+  };
+
+  // Save Operational Costs (Packaging + Insumos)
+  const handleSaveOperationalCosts = async (
+    defaultPackagingCost: number,
+    orderExtraCosts: OrderExtraCost[]
+  ) => {
+    const updated: SettingsRecord = {
+      ...settings,
+      defaultPackagingCost,
+      orderExtraCosts,
+    };
+    setSettings(updated);
+    if (user) {
+      await saveSettingsInFirestore(user.uid, updated);
+    }
+    toast.success('Custos de embalagem e insumos operacionais salvos com sucesso!');
+  };
+
+  // Recalculate All Orders with Updated Operational Costs
+  const handleRecalculateAllOperationalCosts = async (
+    defaultPackagingCost: number,
+    orderExtraCosts: OrderExtraCost[]
+  ) => {
+    const toastId = toast.loading('Recalculando todos os pedidos com novos custos operacionais...');
+    const newSettings: SettingsRecord = {
+      ...settings,
+      defaultPackagingCost,
+      orderExtraCosts,
+    };
+    setSettings(newSettings);
+
+    const updatedOrders = orders.map((ord) => {
+      const packagingCost =
+        ord.packagingCost !== undefined ? ord.packagingCost : defaultPackagingCost;
+      const extraCosts = ord.extraCosts !== undefined ? ord.extraCosts : undefined;
+      const fin = calculateOrderFinancials({
+        grossAmount: ord.grossAmount,
+        shippingCost: ord.shippingCost,
+        cogsAmount: ord.cogsAmount,
+        packagingCost,
+        extraCosts,
+        paymentMethod: ord.paymentMethod,
+        settings: newSettings,
+      });
+
+      return {
+        ...ord,
+        packagingCost: fin.packagingCost,
+        extraCosts: fin.extraCosts,
+        netProfit: fin.netProfit,
+        profitMargin: fin.profitMargin,
+      };
+    });
+
+    setOrders(updatedOrders);
+    if (user) {
+      await saveSettingsInFirestore(user.uid, newSettings);
+      await persistSyncedOrders(user.uid, updatedOrders);
+    }
+    toast.success(
+      `Todos os ${updatedOrders.length} pedidos foram recalculados com os novos custos!`,
+      { id: toastId }
+    );
+  };
+
+  // Simple Product CMV Update (called from Dashboard View inline edit)
   const handleUpdateProductCost = async (
     product: ProductRecord,
     newCost: number
   ) => {
-    setProducts((prev) =>
-      prev.map((p) => (p.id === product.id ? { ...p, costPrice: newCost } : p))
-    );
-    if (user) {
-      await updateProductCostInFirestore(product, newCost);
-    }
-    toast.success(`CMV de "${product.title}" atualizado para R$ ${newCost.toFixed(2)}!`);
+    await handleUpdateProductCostWithRetroactive(product, newCost, false);
   };
 
   // Save Settings & Recalculate Order Financials
@@ -1340,6 +1506,7 @@ export default function App() {
               onUpdateProductCost={handleUpdateProductCost}
               onNavigateOrders={() => setActiveRoute('/dashboard/pedidos')}
               onNavigateSettings={() => setActiveRoute('/dashboard/configuracoes')}
+              onNavigateCosts={() => setActiveRoute('/dashboard/custos')}
               onSyncAll={handleGlobalParallelSync}
             />
           )}
@@ -1347,14 +1514,30 @@ export default function App() {
           {activeRoute === '/dashboard/pedidos' && (
             <OrdersView
               orders={filteredOrders}
+              settings={settings}
               privacyMode={privacyMode}
               isSyncingCartpanda={isSyncingCartpanda}
               onSyncCartpanda={handleSyncCartpandaFromOrders}
               onUpdateOrderStatus={handleUpdateOrderStatus}
               onUpdateOrderPaymentMethod={handleUpdateOrderPaymentMethod}
+              onUpdateOrderCosts={handleUpdateOrderCosts}
               onBulkReclassifyOrders={handleBulkReclassifyOrders}
               onDeleteOrder={handleDeleteOrder}
               onPurgeTestOrders={handlePurgeTestOrders}
+            />
+          )}
+
+          {activeRoute === '/dashboard/custos' && (
+            <CostsView
+              products={products}
+              orders={filteredOrders}
+              settings={settings}
+              privacyMode={privacyMode}
+              onUpdateProductCost={handleUpdateProductCostWithRetroactive}
+              onSaveProduct={handleSaveProduct}
+              onDeleteProduct={handleDeleteProduct}
+              onSaveOperationalCosts={handleSaveOperationalCosts}
+              onRecalculateAllOperationalCosts={handleRecalculateAllOperationalCosts}
             />
           )}
 

@@ -72,9 +72,28 @@ export const DreView: React.FC<DreViewProps> = ({
       paidOrders.reduce((acc, o) => acc + o.shippingCost, 0).toFixed(2)
     );
 
+    // 7.1 (-) Embalagens & Insumos Operacionais por Pedido
+    const defaultExtra = Array.isArray(settings.orderExtraCosts)
+      ? settings.orderExtraCosts
+          .filter((c) => c.active)
+          .reduce((sum, c) => sum + (Number(c.amount) || 0), 0)
+      : 0;
+    const defaultPackaging = Number(settings.defaultPackagingCost ?? 3.5);
+    const packagingAndInsumos = Number(
+      paidOrders
+        .reduce(
+          (acc, o) =>
+            acc +
+            (o.packagingCost !== undefined ? o.packagingCost : defaultPackaging) +
+            (o.extraCosts !== undefined ? o.extraCosts : defaultExtra),
+          0
+        )
+        .toFixed(2)
+    );
+
     // 8. (=) Margem Bruta
     const grossMargin = Number(
-      (realNetRevenue - cogs - checkoutFees - taxes - shipping).toFixed(2)
+      (realNetRevenue - cogs - checkoutFees - taxes - shipping - packagingAndInsumos).toFixed(2)
     );
 
     // 9. (-) Investimento em Tráfego (Meta Ads)
@@ -105,6 +124,7 @@ export const DreView: React.FC<DreViewProps> = ({
       checkoutFees,
       taxes,
       shipping,
+      packagingAndInsumos,
       grossMargin,
       adSpend,
       operatingResult,
@@ -112,7 +132,7 @@ export const DreView: React.FC<DreViewProps> = ({
       finalPocketProfit,
       base,
     };
-  }, [orders, adSpends, customExpenses]);
+  }, [orders, adSpends, customExpenses, settings]);
 
   const rows = [
     {
@@ -166,35 +186,42 @@ export const DreView: React.FC<DreViewProps> = ({
     },
     {
       step: '08',
-      label: '8. (=) Margem Bruta (Lucro Bruto Comercial)',
+      label: '8. (-) Embalagens & Insumos Operacionais por Pedido',
+      value: -dre.packagingAndInsumos,
+      pct: (dre.packagingAndInsumos / dre.base) * 100,
+      kind: 'deduction' as const,
+    },
+    {
+      step: '09',
+      label: '9. (=) Margem Bruta (Lucro Bruto Comercial)',
       value: dre.grossMargin,
       pct: (dre.grossMargin / dre.base) * 100,
       kind: 'subtotal' as const,
     },
     {
-      step: '09',
-      label: '9. (-) Investimento em Tráfego (Meta Ads)',
+      step: '10',
+      label: '10. (-) Investimento em Tráfego (Meta Ads)',
       value: -dre.adSpend,
       pct: (dre.adSpend / dre.base) * 100,
       kind: 'deduction' as const,
     },
     {
-      step: '10',
-      label: '10. (=) Resultado Operacional (Pós-Tráfego)',
+      step: '11',
+      label: '11. (=) Resultado Operacional (Pós-Tráfego)',
       value: dre.operatingResult,
       pct: (dre.operatingResult / dre.base) * 100,
       kind: 'subtotal' as const,
     },
     {
-      step: '11',
-      label: '11. (-) Custos Fixos Cadastrados (Ferramentas, Equipe, ERP)',
+      step: '12',
+      label: '12. (-) Custos Fixos Cadastrados (Ferramentas, Equipe, ERP)',
       value: -dre.fixedCosts,
       pct: (Math.abs(dre.fixedCosts) / dre.base) * 100,
       kind: 'deduction' as const,
     },
     {
-      step: '12',
-      label: '12. (=) Lucro Líquido Final no Bolso',
+      step: '13',
+      label: '13. (=) Lucro Líquido Final no Bolso',
       value: dre.finalPocketProfit,
       pct: (dre.finalPocketProfit / dre.base) * 100,
       kind: 'final' as const,

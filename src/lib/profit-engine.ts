@@ -34,6 +34,9 @@ export interface OrderRecord {
   shippingCost: number;
   taxAmount: number;
   cogsAmount: number;
+  packagingCost?: number;
+  extraCosts?: number;
+  hasCustomCosts?: boolean;
   netProfit: number;
   profitMargin: number;
   utmSource: string;
@@ -93,6 +96,13 @@ export interface CustomExpenseRecord {
   startDate: string;
 }
 
+export interface OrderExtraCost {
+  id: string;
+  name: string;
+  amount: number;
+  active: boolean;
+}
+
 export interface SettingsRecord {
   id: string;
   ownerId: string;
@@ -104,6 +114,8 @@ export interface SettingsRecord {
   cartpandaCardFeePercent: number;
   cartpandaCardFeeFixed: number;
   cartpandaBilletFeeFixed: number;
+  defaultPackagingCost?: number; // Custo padrão de embalagem por pedido (caixa, fita, etc.)
+  orderExtraCosts?: OrderExtraCost[]; // Custos extras operacionais configuráveis por pedido
   metaAccessToken: string;
   metaAdAccountId: string;
   lastSyncAt: string;
@@ -123,6 +135,11 @@ export const DEFAULT_SETTINGS: Omit<SettingsRecord, 'id' | 'ownerId'> = {
   cartpandaCardFeePercent: 4.99,
   cartpandaCardFeeFixed: 1.0,
   cartpandaBilletFeeFixed: 3.49,
+  defaultPackagingCost: 3.50, // R$ 3,50 por embalagem/caixa padrão
+  orderExtraCosts: [
+    { id: 'extra_1', name: 'Brinde / Adesivo', amount: 1.00, active: true },
+    { id: 'extra_2', name: 'Fita e Etiqueta', amount: 0.50, active: true },
+  ],
   metaAccessToken: '',
   metaAdAccountId: '',
   lastSyncAt: '',
@@ -775,6 +792,8 @@ export function calculateOrderFinancials(params: {
   grossAmount: number;
   shippingCost: number;
   cogsAmount: number;
+  packagingCost?: number;
+  extraCosts?: number;
   paymentMethod: PaymentMethod;
   settings:
     | Pick<
@@ -786,12 +805,32 @@ export function calculateOrderFinancials(params: {
         | 'cartpandaCardFeePercent'
         | 'cartpandaCardFeeFixed'
         | 'cartpandaBilletFeeFixed'
+        | 'defaultPackagingCost'
+        | 'orderExtraCosts'
       >
     | Partial<SettingsRecord>;
 }) {
   const grossAmount = Math.max(0, Number(params.grossAmount) || 0);
   const shippingCost = Math.max(0, Number(params.shippingCost) || 0);
   const cogsAmount = Math.max(0, Number(params.cogsAmount) || 0);
+
+  // Operational Packaging Cost: use custom if given, otherwise settings default
+  const defaultPackaging = Number(params.settings.defaultPackagingCost ?? 0);
+  const packagingCost =
+    params.packagingCost !== undefined
+      ? Math.max(0, Number(params.packagingCost) || 0)
+      : defaultPackaging;
+
+  // Extra Operational Costs (per order): use custom if given, otherwise active sum from settings
+  const defaultExtra = Array.isArray(params.settings.orderExtraCosts)
+    ? params.settings.orderExtraCosts
+        .filter((c) => c.active)
+        .reduce((sum, c) => sum + (Number(c.amount) || 0), 0)
+    : 0;
+  const extraCosts =
+    params.extraCosts !== undefined
+      ? Math.max(0, Number(params.extraCosts) || 0)
+      : defaultExtra;
 
   // 1. Payment Gateway Fee (PIX, Card, Boleto)
   let gatewayFee = 0;
@@ -820,7 +859,11 @@ export function calculateOrderFinancials(params: {
   const taxRate = Number(params.settings.taxRate ?? 0);
   const taxAmount = Number((grossAmount * (taxRate / 100)).toFixed(2));
   const productRevenue = Number((grossAmount - shippingCost).toFixed(2));
-  const netProfit = Number((netAmount - cogsAmount - taxAmount - shippingCost).toFixed(2));
+  
+  // Real Net Profit = Net Billing - CMV - Taxes - Real Shipping - Packaging - Extra Order Insumos
+  const netProfit = Number(
+    (netAmount - cogsAmount - taxAmount - shippingCost - packagingCost - extraCosts).toFixed(2)
+  );
   const profitMargin =
     grossAmount > 0 ? Number(((netProfit / grossAmount) * 100).toFixed(2)) : 0;
 
@@ -833,8 +876,129 @@ export function calculateOrderFinancials(params: {
     shippingCost: Number(shippingCost.toFixed(2)),
     taxAmount,
     cogsAmount: Number(cogsAmount.toFixed(2)),
+    packagingCost: Number(packagingCost.toFixed(2)),
+    extraCosts: Number(extraCosts.toFixed(2)),
     netProfit,
     profitMargin,
+  };
+}
+
+/**
+ * Checks whether an order item summary or SKU matches a given product,
+ * and extracts the detected purchase quantity.
+ */
+export function matchOrderToProduct(
+  order: { itemsSummary?: string; cogsAmount?: number },
+  product: { id?: string; sku?: string; title?: string }
+): { matches: boolean; quantity: number } {
+  const summary = (order.itemsSummary || '').toLowerCase();
+  const sku = (product.sku || '').trim().toLowerCase();
+  const title = (product.title || '').trim().toLowerCase();
+
+  let matches = false;
+  if (sku && summary.includes(sku)) {
+    matches = true;
+  } else if (title && title.length >= 3 && summary.includes(title)) {
+    matches = true;
+  }
+
+  if (!matches) {
+    return { matches: false, quantity: 0 };
+  }
+
+  // Detect quantity if present, e.g. "2x Camisa" or "2 x" or "qtd: 2"
+  const qtyMatch = summary.match(/(\d+)\s*x/i) || summary.match(/qtd:?\s*(\d+)/i);
+  const quantity = qtyMatch ? parseInt(qtyMatch[1], 10) || 1 : 1;
+
+  return { matches: true, quantity };
+}
+
+/**
+ * Recalculates historical orders that contain a specific product when its costPrice changes.
+ */
+export function recalculateOrdersWithProductCost(
+  orders: OrderRecord[],
+  product: ProductRecord,
+  newUnitCost: number,
+  settings: Partial<SettingsRecord>
+): { updatedOrders: OrderRecord[]; affectedCount: number } {
+  let affectedCount = 0;
+  const updatedOrders = orders.map((ord) => {
+    const { matches, quantity } = matchOrderToProduct(ord, product);
+    if (!matches) {
+      return ord;
+    }
+
+    affectedCount++;
+    const newCogs = Number((newUnitCost * quantity).toFixed(2));
+    const fin = calculateOrderFinancials({
+      grossAmount: ord.grossAmount,
+      shippingCost: ord.shippingCost,
+      cogsAmount: newCogs,
+      packagingCost: ord.packagingCost,
+      extraCosts: ord.extraCosts,
+      paymentMethod: ord.paymentMethod,
+      settings,
+    });
+
+    return {
+      ...ord,
+      cogsAmount: fin.cogsAmount,
+      packagingCost: fin.packagingCost,
+      extraCosts: fin.extraCosts,
+      netProfit: fin.netProfit,
+      profitMargin: fin.profitMargin,
+      hasCustomCosts: false,
+    };
+  });
+
+  return { updatedOrders, affectedCount };
+}
+
+/**
+ * Updates costs for an isolated individual order (e.g., custom CMV discount or custom shipping/packaging).
+ */
+export function updateIsolatedOrderCosts(
+  order: OrderRecord,
+  newCosts: {
+    cogsAmount: number;
+    packagingCost?: number;
+    extraCosts?: number;
+    shippingCost?: number;
+  },
+  settings: Partial<SettingsRecord>
+): OrderRecord {
+  const shippingCost =
+    newCosts.shippingCost !== undefined ? Math.max(0, newCosts.shippingCost) : order.shippingCost;
+  const cogsAmount = Math.max(0, newCosts.cogsAmount);
+  const packagingCost =
+    newCosts.packagingCost !== undefined
+      ? Math.max(0, newCosts.packagingCost)
+      : order.packagingCost ?? Number(settings.defaultPackagingCost ?? 0);
+  const extraCosts =
+    newCosts.extraCosts !== undefined
+      ? Math.max(0, newCosts.extraCosts)
+      : order.extraCosts ?? 0;
+
+  const fin = calculateOrderFinancials({
+    grossAmount: order.grossAmount,
+    shippingCost,
+    cogsAmount,
+    packagingCost,
+    extraCosts,
+    paymentMethod: order.paymentMethod,
+    settings,
+  });
+
+  return {
+    ...order,
+    shippingCost: fin.shippingCost,
+    cogsAmount: fin.cogsAmount,
+    packagingCost: fin.packagingCost,
+    extraCosts: fin.extraCosts,
+    netProfit: fin.netProfit,
+    profitMargin: fin.profitMargin,
+    hasCustomCosts: true,
   };
 }
 
