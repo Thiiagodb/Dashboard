@@ -1023,39 +1023,44 @@ export default function App() {
     applyRetroactive: boolean,
     newPrice?: number
   ) => {
-    const updatedProducts = products.map((p) =>
-      p.id === product.id
-        ? {
-            ...p,
-            costPrice: newCost,
-            price: newPrice !== undefined ? newPrice : p.price,
-          }
-        : p
-    );
-    setProducts(updatedProducts);
-
-    if (user) {
-      await updateProductCostInFirestore(product, newCost, newPrice);
-    }
-
-    if (applyRetroactive) {
-      const { updatedOrders, affectedCount } = recalculateOrdersWithProductCost(
-        orders,
-        product,
-        newCost,
-        settings
+    try {
+      const updatedProducts = products.map((p) =>
+        p.id === product.id || (Boolean(product.sku) && p.sku === product.sku)
+          ? {
+              ...p,
+              costPrice: newCost,
+              price: newPrice !== undefined ? newPrice : p.price,
+            }
+          : p
       );
-      setOrders(updatedOrders);
+      setProducts(updatedProducts);
+
       if (user) {
-        await persistSyncedOrders(user.uid, updatedOrders);
+        await updateProductCostInFirestore(product, newCost, newPrice);
       }
-      toast.success(
-        `CMV atualizado para R$ ${newCost.toFixed(2)} e ${affectedCount} pedido(s) anteriores recalculados!`
-      );
-    } else {
-      toast.success(
-        `CMV de "${product.title}" atualizado para R$ ${newCost.toFixed(2)} (mantido para pedidos futuros).`
-      );
+
+      if (applyRetroactive) {
+        const { updatedOrders, affectedCount } = recalculateOrdersWithProductCost(
+          orders,
+          product,
+          newCost,
+          settings
+        );
+        setOrders(updatedOrders);
+        if (user && updatedOrders.length > 0) {
+          await persistSyncedOrders(user.uid, updatedOrders);
+        }
+        toast.success(
+          `CMV atualizado para R$ ${newCost.toFixed(2)} e ${affectedCount} pedido(s) anteriores recalculados!`
+        );
+      } else {
+        toast.success(
+          `CMV de "${product.title}" atualizado para R$ ${newCost.toFixed(2)} (mantido para pedidos futuros).`
+        );
+      }
+    } catch (err) {
+      console.error('Error in handleUpdateProductCostWithRetroactive:', err);
+      toast.error('Erro ao atualizar custo do produto.');
     }
   };
 

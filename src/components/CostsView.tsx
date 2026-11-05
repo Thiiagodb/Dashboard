@@ -211,16 +211,22 @@ export const CostsView: React.FC<CostsViewProps> = ({
   // Confirm Retroactive or Future-only
   const handleConfirmRetroactiveChoice = async (applyRetroactive: boolean) => {
     if (!retroactiveModal) return;
+    const modalData = retroactiveModal;
+
+    // Immediately close modal and exit editing mode so popup closes instantly on click
+    setRetroactiveModal(null);
+    setEditingSku(null);
     setIsProcessingRetroactive(true);
+
     try {
       await onUpdateProductCost(
-        retroactiveModal.product,
-        retroactiveModal.newCost,
+        modalData.product,
+        modalData.newCost,
         applyRetroactive,
-        retroactiveModal.newPrice
+        modalData.newPrice
       );
-      setRetroactiveModal(null);
-      setEditingSku(null);
+    } catch (err) {
+      console.error('Error applying product cost:', err);
     } finally {
       setIsProcessingRetroactive(false);
     }

@@ -547,20 +547,27 @@ export async function updateProductCostInFirestore(
   newCostPrice: number,
   newPrice?: number
 ): Promise<void> {
-  const path = `products/${product.id}`;
+  const docId = sanitizeId(product.id || `prod_${product.sku || Date.now()}`);
+  const path = `products/${docId}`;
   try {
-    await updateDoc(doc(db, 'products', product.id), {
-      title: product.title.slice(0, 200),
-      sku: product.sku.slice(0, 80),
-      imageUrl: product.imageUrl.slice(0, 500),
-      price: newPrice !== undefined ? Number(newPrice) : Number(product.price),
-      costPrice: Math.max(0, Number(newCostPrice)),
-      stockQuantity: Number(product.stockQuantity),
-      active: Boolean(product.active),
-      updatedAt: serverTimestamp(),
-    });
+    const prodRef = doc(db, 'products', docId);
+    await setDoc(
+      prodRef,
+      {
+        ownerId: product.ownerId || 'local_merchant',
+        title: product.title.slice(0, 200),
+        sku: product.sku.slice(0, 80),
+        imageUrl: product.imageUrl.slice(0, 500),
+        price: newPrice !== undefined ? Number(newPrice) : Number(product.price),
+        costPrice: Math.max(0, Number(newCostPrice)),
+        stockQuantity: Number(product.stockQuantity || 100),
+        active: Boolean(product.active ?? true),
+        updatedAt: serverTimestamp(),
+      },
+      { merge: true }
+    );
   } catch (error) {
-    handleFirestoreError(error, OperationType.UPDATE, path);
+    console.warn(`Could not persist product ${docId} to Firestore:`, error);
   }
 }
 
